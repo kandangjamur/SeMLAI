@@ -10,7 +10,13 @@ binance_api_secret = os.getenv("BINANCE_API_SECRET")
 client = Client(binance_api_key, binance_api_secret)
 
 def analyze_market():
-    usdt_pairs = [s['symbol'] for s in client.get_ticker_price() if s['symbol'].endswith('USDT') and not any(x in s['symbol'] for x in ['UP', 'DOWN', 'BULL', 'BEAR'])]
+    try:
+        tickers = client.get_all_tickers()
+        usdt_pairs = [t['symbol'] for t in tickers if t['symbol'].endswith('USDT') and not any(x in t['symbol'] for x in ['UP', 'DOWN', 'BULL', 'BEAR'])]
+    except Exception as e:
+        print(f"Error fetching tickers: {e}")
+        return None
+
     timeframes = ['1m', '5m', '15m', '1h', '4h', '1d']
     limit = 100
 
@@ -49,4 +55,5 @@ def analyze_market():
                     }
             except Exception as e:
                 print(f"Error analyzing {symbol} - {timeframe}: {e}")
+
     return None
