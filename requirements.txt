@@ -1,5 +1,5 @@
-gunicorn
 flask
+gunicorn
 python-binance
 telepot
 requests
