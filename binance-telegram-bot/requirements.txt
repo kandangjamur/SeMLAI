@@ -1,8 +1,0 @@
-python-binance
-telepot
-requests
-pandas
-numpy
-scikit-learn
-textblob
-schedule
