@@ -2,24 +2,28 @@ import time
 import os
 from flask import Flask
 from utils.market_analysis import analyze_market
-from utils.signal_formatter import format_signal
-import threading
+from utils.signal_formatter import format_signal  # Corrected the import
+import requests
 
 app = Flask(__name__)
 
-# This route is for health checks to pass
-@app.route('/')
-def health_check():
-    return 'Bot is running', 200
+# Flask route for health check (ping)
+@app.route('/ping', methods=['GET'])
+def ping():
+    return "Pong", 200  # Basic ping route for health check
+
+@app.route('/get', methods=['GET'])
+def get():
+    return "Running", 200  # Route to indicate the app is running
 
 def send_to_telegram(message):
-    import requests
     token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     requests.post(url, data={"chat_id": chat_id, "text": message, "parse_mode": "Markdown"})
 
-def run_bot():
+# Function to handle market analysis and telegram updates
+def start_market_analysis():
     while True:
         try:
             signal = analyze_market()  # Assuming this function returns the market signal
@@ -31,10 +35,11 @@ def run_bot():
             print("Error:", e)
             time.sleep(30)  # Wait before retrying in case of error
 
-# Run bot in a separate thread
-bot_thread = threading.Thread(target=run_bot)
-bot_thread.daemon = True
-bot_thread.start()
-
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000)  # Flask app running on port 8000
+    # Start the market analysis in a separate thread or process
+    import threading
+    analysis_thread = threading.Thread(target=start_market_analysis)
+    analysis_thread.start()
+
+    # Start the Flask app (HTTP server)
+    app.run(host='0.0.0.0', port=8000)
