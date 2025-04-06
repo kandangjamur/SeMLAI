@@ -4,6 +4,7 @@ from flask import Flask
 from utils.market_analysis import analyze_market
 from utils.signal_formatter import format_signal  # Corrected the import
 import requests
+import threading
 
 app = Flask(__name__)
 
@@ -36,10 +37,9 @@ def start_market_analysis():
             time.sleep(30)  # Wait before retrying in case of error
 
 if __name__ == '__main__':
-    # Start the market analysis in a separate thread or process
-    import threading
+    # Start the market analysis in a separate thread
     analysis_thread = threading.Thread(target=start_market_analysis)
     analysis_thread.start()
 
     # Start the Flask app (HTTP server)
-    app.run(host='0.0.0.0', port=8000)
+    app.run(host='0.0.0.0', port=8000)  # Ensure that Flask runs on port 8000 for health check
