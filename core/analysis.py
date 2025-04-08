@@ -1,94 +1,97 @@
-# core/analysis.py
-
 import pandas as pd
+import numpy as np
 from binance.client import Client
 from core.indicators import calculate_indicators
 from utils.logger import log
-import numpy as np
 
-client = Client()
+binance_client = Client(api_key='your_api_key', api_secret='your_api_secret')
 
 TIMEFRAMES = {
     '15m': Client.KLINE_INTERVAL_15MINUTE,
     '30m': Client.KLINE_INTERVAL_30MINUTE,
     '1h': Client.KLINE_INTERVAL_1HOUR,
-    '4h': Client.KLINE_INTERVAL_4HOUR,
+    '4h': Client.KLINE_INTERVAL_4HOUR
 }
 
-def fetch_ohlcv(symbol, interval, limit=200):
-    klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
-    df = pd.DataFrame(klines, columns=[
-        'timestamp', 'open', 'high', 'low', 'close', 'volume',
-        'close_time', 'quote_asset_volume', 'num_trades',
-        'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
-    ])
-    df['close'] = df['close'].astype(float)
-    df['volume'] = df['volume'].astype(float)
-    return df
+def fetch_ohlcv(symbol, interval, lookback='100'):
+    try:
+        klines = binance_client.get_klines(symbol=symbol, interval=interval, limit=int(lookback))
+        df = pd.DataFrame(klines, columns=[
+            'timestamp', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_asset_volume', 'number_of_trades',
+            'taker_buy_base_volume', 'taker_buy_quote_volume', 'ignore'
+        ])
+        df['close'] = pd.to_numeric(df['close'])
+        df['high'] = pd.to_numeric(df['high'])
+        df['low'] = pd.to_numeric(df['low'])
+        df['open'] = pd.to_numeric(df['open'])
+        df['volume'] = pd.to_numeric(df['volume'])
+        return df
+    except Exception as e:
+        log(f"Error fetching OHLCV for {symbol}: {e}")
+        return None
 
 def score_signal(indicators):
     score = 0
-    reasons = []
+    conditions = []
 
+    # Example scoring conditions (you can add more based on strategy)
     if indicators['rsi'] < 30:
         score += 1
-        reasons.append("RSI Oversold")
-
-    if indicators['macd_hist'] > 0 and indicators['macd'] > indicators['signal']:
+        conditions.append('RSI oversold')
+    if indicators['macd'] > indicators['macd_signal']:
         score += 1
-        reasons.append("MACD Bullish")
-
-    if indicators['ema_9'] > indicators['ema_21']:
+        conditions.append('MACD crossover')
+    if indicators['ema_fast'] > indicators['ema_slow']:
         score += 1
-        reasons.append("EMA Crossover Bullish")
-
+        conditions.append('EMA crossover')
     if indicators['volume_spike']:
         score += 1
-        reasons.append("Volume Spike")
-
-    if indicators['price_above_bbands']:
+        conditions.append('Volume spike')
+    if indicators['bollinger_signal'] == 'buy':
         score += 1
-        reasons.append("Price Above Upper Bollinger Band")
-
-    if indicators['atr'] > indicators['atr_mean']:
+        conditions.append('Bollinger signal')
+    if indicators['atr_rising']:
         score += 1
-        reasons.append("ATR Volatility High")
+        conditions.append('ATR rising')
 
-    confidence = (score / 6) * 100
-    return score, confidence, reasons
+    confidence = round((score / 6) * 100, 2)
+    return score, confidence, conditions
 
 def analyze_symbol(symbol):
-    results = []
+    try:
+        final_signals = []
 
-    for tf_name, tf_interval in TIMEFRAMES.items():
-        df = fetch_ohlcv(symbol, tf_interval)
-        if df.empty or len(df) < 50:
+        for tf_label, interval in TIMEFRAMES.items():
+            df = fetch_ohlcv(symbol, interval)
+            if df is None or len(df) < 20:
+                continue
+
+            indicators = calculate_indicators(df)
+            score, confidence, reasons = score_signal(indicators)
+
+            if score >= 4:  # Triple verification
+                final_signals.append({
+                    'symbol': symbol,
+                    'timeframe': tf_label,
+                    'score': score,
+                    'confidence': confidence,
+                    'reasons': reasons,
+                    'price': df['close'].iloc[-1]
+                })
+
+        return final_signals
+
+    except Exception as e:
+        log(f"Error in analyze_symbol for {symbol}: {e}")
+        return []
+
+def analyze_all_symbols(symbols):
+    all_signals = []
+    for symbol in symbols:
+        if not symbol.endswith('USDT'):
             continue
-
-        indicators = calculate_indicators(df)
-        score, confidence, reasons = score_signal(indicators)
-
-        if confidence >= 90:  # High-confidence signal threshold
-            results.append({
-                'symbol': symbol,
-                'timeframe': tf_name,
-                'confidence': confidence,
-                'score': score,
-                'reasons': reasons,
-                'close': df['close'].iloc[-1]
-            })
-
-    return results
-
-def scan_market():
-    all_symbols = [s['symbol'] for s in client.get_ticker_price() if s['symbol'].endswith('USDT')]
-    verified_signals = []
-
-    for symbol in all_symbols:
-        try:
-            symbol_results = analyze_symbol(symbol)
-            verified_signals.extend(symbol_results)
-        except Exception as e:
-            log(f"Error analyzing {symbol}: {e}")
-
-    return verified_signals
+        result = analyze_symbol(symbol)
+        if result:
+            all_signals.extend(result)
+    return all_signals
