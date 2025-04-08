@@ -1,11 +1,15 @@
 import pandas as pd
 import numpy as np
+import os
 from binance.client import Client
-from core.indicators import calculate_indicators
+import ta
 from utils.logger import log
 
 # Initialize Binance client (replace with actual keys in production or use env vars)
-binance_client = Client(api_key='your_api_key', api_secret='your_api_secret')
+binance_client = Client(
+    api_key=os.getenv('BINANCE_API_KEY'),
+    api_secret=os.getenv('BINANCE_API_SECRET')
+)
 
 # Timeframes to scan
 TIMEFRAMES = {
@@ -34,6 +38,19 @@ def fetch_ohlcv(symbol, interval, lookback='100'):
         log(f"Error fetching OHLCV for {symbol}: {e}")
         return None
 
+# Calculate technical indicators
+def calculate_indicators(df):
+    df['rsi'] = ta.momentum.RSIIndicator(df['close']).rsi()
+    df['macd'] = ta.trend.MACD(df['close']).macd()
+    df['macd_signal'] = ta.trend.MACD(df['close']).macd_signal()
+    df['ema_12'] = ta.trend.EMAIndicator(df['close'], window=12).ema_indicator()
+    df['ema_26'] = ta.trend.EMAIndicator(df['close'], window=26).ema_indicator()
+    df['bb_lower'], df['bb_middle'], df['bb_upper'] = ta.volatility.BollingerBands(df['close']).bollinger_lband(), ta.volatility.BollingerBands(df['close']).bollinger_mavg(), ta.volatility.BollingerBands(df['close']).bollinger_hband()
+    df['atr'] = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close']).average_true_range()
+    df['volume_change'] = df['volume'].pct_change() * 100  # Percentage change in volume
+
+    return df
+
 # Score signal based on multiple hedge-fund level indicators
 def score_signal(indicators):
     score = 0
@@ -55,7 +72,7 @@ def score_signal(indicators):
         conditions.append('EMA 12 > EMA 26')
 
     # Volume spike (100%+ change)
-    if indicators['volume_change'].iloc[-1] > 100:
+    if indicators['volume_change'].iloc[-1] > 50:
         score += 1
         conditions.append('Volume spike detected')
 
@@ -111,3 +128,7 @@ def analyze_all_symbols(symbols):
         if result:
             all_signals.extend(result)
     return all_signals
+
+# Log function for general use
+def log(message):
+    print(f"[LOG] {message}")
