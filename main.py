@@ -1,18 +1,55 @@
-from flask import Flask
-from core.analysis import generate_signals
-import schedule
-import time
+import os
+from flask import Flask, jsonify
+from binance.client import Client
+from core.analysis import analyze_all_symbols
+from utils.logger import log
 
+# Initialize Binance client
+binance_client = Client(
+    api_key=os.getenv('BINANCE_API_KEY'),
+    api_secret=os.getenv('BINANCE_API_SECRET')
+)
+
+# Initialize Flask app
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return "Crypto Signal Bot is running!"
+# Function to fetch all USDT pairs from Binance
+def get_all_usdt_pairs():
+    try:
+        exchange_info = binance_client.get_exchange_info()
+        symbols = [symbol['symbol'] for symbol in exchange_info['symbols'] if symbol['symbol'].endswith('USDT')]
+        return symbols
+    except Exception as e:
+        log(f"Error fetching USDT pairs: {e}")
+        return []
 
-def schedule_signals():
-    # Automatically generate signals for all USDT pairs at intervals (e.g., every minute)
-    schedule.every(1).minute.do(generate_signals)
+@app.route('/status', methods=['GET'])
+def status():
+    try:
+        return jsonify({"status": "running"}), 200
+    except Exception as e:
+        log(f"Error in /status: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-if __name__ == '__main__':
-    schedule_signals()
+@app.route('/manualscan', methods=['GET'])
+def manual_scan():
+    try:
+        # Fetch all USDT pairs dynamically
+        symbols = get_all_usdt_pairs()
+
+        if not symbols:
+            return jsonify({"status": "error", "message": "No USDT pairs found."}), 500
+
+        # Run the analysis on all symbols
+        signals = analyze_all_symbols(symbols)
+
+        if signals:
+            return jsonify({"signals": signals}), 200
+        else:
+            return jsonify({"message": "No valid signals found."}), 200
+    except Exception as e:
+        log(f"Error in /manualscan: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+if __name__ == "__main__":
     app.run(debug=True, host='0.0.0.0', port=5000)
