@@ -1,22 +1,60 @@
-import talib
-import numpy as np
-from binance.client import Client
+import pandas as pd
+import ta
 
-binance_client = Client(api_key='your_api_key', api_secret='your_api_secret')
+def compute_indicators(df):
+    """
+    Calculate all key indicators on the provided DataFrame.
+    Expected columns: ['open', 'high', 'low', 'close', 'volume']
+    """
+    df = df.copy()
 
-def calculate_rsi(symbol):
-    # Fetch historical data
-    klines = binance_client.get_historical_klines(symbol, Client.KLINE_INTERVAL_1MINUTE, "1 day ago UTC")
-    closes = [float(kline[4]) for kline in klines]
-    return talib.RSI(np.array(closes), timeperiod=14)[-1]
+    # RSI
+    df['rsi'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
 
-def calculate_macd(symbol):
-    klines = binance_client.get_historical_klines(symbol, Client.KLINE_INTERVAL_1MINUTE, "1 day ago UTC")
-    closes = [float(kline[4]) for kline in klines]
-    macd, signal, hist = talib.MACD(np.array(closes), fastperiod=12, slowperiod=26, signalperiod=9)
-    return macd[-1], signal[-1], hist[-1]
+    # MACD
+    macd = ta.trend.MACD(close=df['close'])
+    df['macd'] = macd.macd()
+    df['macd_signal'] = macd.macd_signal()
+    df['macd_diff'] = macd.macd_diff()
 
-def calculate_ema(symbol):
-    klines = binance_client.get_historical_klines(symbol, Client.KLINE_INTERVAL_1MINUTE, "1 day ago UTC")
-    closes = [float(kline[4]) for kline in klines]
-    return talib.EMA(np.array(closes), timeperiod=9)[-1]
+    # EMA (Exponential Moving Averages)
+    df['ema_9'] = ta.trend.EMAIndicator(close=df['close'], window=9).ema_indicator()
+    df['ema_20'] = ta.trend.EMAIndicator(close=df['close'], window=20).ema_indicator()
+    df['ema_50'] = ta.trend.EMAIndicator(close=df['close'], window=50).ema_indicator()
+    df['ema_100'] = ta.trend.EMAIndicator(close=df['close'], window=100).ema_indicator()
+
+    # SMA (Simple Moving Average)
+    df['sma_50'] = ta.trend.SMAIndicator(close=df['close'], window=50).sma_indicator()
+    df['sma_200'] = ta.trend.SMAIndicator(close=df['close'], window=200).sma_indicator()
+
+    # Bollinger Bands
+    bb = ta.volatility.BollingerBands(close=df['close'], window=20, window_dev=2)
+    df['bb_upper'] = bb.bollinger_hband()
+    df['bb_middle'] = bb.bollinger_mavg()
+    df['bb_lower'] = bb.bollinger_lband()
+    df['bb_width'] = df['bb_upper'] - df['bb_lower']
+
+    # Average True Range (ATR)
+    df['atr'] = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14).average_true_range()
+
+    # Stochastic Oscillator
+    stoch = ta.momentum.StochasticOscillator(high=df['high'], low=df['low'], close=df['close'], window=14, smooth_window=3)
+    df['stoch_k'] = stoch.stoch()
+    df['stoch_d'] = stoch.stoch_signal()
+
+    # CCI (Commodity Channel Index)
+    df['cci'] = ta.trend.CCIIndicator(high=df['high'], low=df['low'], close=df['close'], window=20).cci()
+
+    # OBV (On-Balance Volume)
+    df['obv'] = ta.volume.OnBalanceVolumeIndicator(close=df['close'], volume=df['volume']).on_balance_volume()
+
+    # MFI (Money Flow Index)
+    df['mfi'] = ta.volume.MFIIndicator(high=df['high'], low=df['low'], close=df['close'], volume=df['volume'], window=14).money_flow_index()
+
+    # ROC (Rate of Change)
+    df['roc'] = ta.momentum.ROCIndicator(close=df['close'], window=12).roc()
+
+    # VWAP (Volume Weighted Average Price)
+    df['vwap'] = (df['volume'] * (df['high'] + df['low'] + df['close']) / 3).cumsum() / df['volume'].cumsum()
+
+    return df
