@@ -4,8 +4,10 @@ from binance.client import Client
 from core.indicators import calculate_indicators
 from utils.logger import log
 
+# Initialize Binance client (replace with actual keys in production or use env vars)
 binance_client = Client(api_key='your_api_key', api_secret='your_api_secret')
 
+# Timeframes to scan
 TIMEFRAMES = {
     '15m': Client.KLINE_INTERVAL_15MINUTE,
     '30m': Client.KLINE_INTERVAL_30MINUTE,
@@ -13,6 +15,7 @@ TIMEFRAMES = {
     '4h': Client.KLINE_INTERVAL_4HOUR
 }
 
+# Fetch OHLCV data for given symbol & timeframe
 def fetch_ohlcv(symbol, interval, lookback='100'):
     try:
         klines = binance_client.get_klines(symbol=symbol, interval=interval, limit=int(lookback))
@@ -31,33 +34,45 @@ def fetch_ohlcv(symbol, interval, lookback='100'):
         log(f"Error fetching OHLCV for {symbol}: {e}")
         return None
 
+# Score signal based on multiple hedge-fund level indicators
 def score_signal(indicators):
     score = 0
     conditions = []
 
-    # Example scoring conditions (you can add more based on strategy)
-    if indicators['rsi'] < 30:
+    # RSI condition
+    if indicators['rsi'].iloc[-1] < 30:
         score += 1
         conditions.append('RSI oversold')
-    if indicators['macd'] > indicators['macd_signal']:
+
+    # MACD crossover
+    if indicators['macd'].iloc[-1] > indicators['macd_signal'].iloc[-1]:
         score += 1
-        conditions.append('MACD crossover')
-    if indicators['ema_fast'] > indicators['ema_slow']:
+        conditions.append('MACD bullish crossover')
+
+    # EMA crossover
+    if indicators['ema_12'].iloc[-1] > indicators['ema_26'].iloc[-1]:
         score += 1
-        conditions.append('EMA crossover')
-    if indicators['volume_spike']:
+        conditions.append('EMA 12 > EMA 26')
+
+    # Volume spike (100%+ change)
+    if indicators['volume_change'].iloc[-1] > 100:
         score += 1
-        conditions.append('Volume spike')
-    if indicators['bollinger_signal'] == 'buy':
+        conditions.append('Volume spike detected')
+
+    # Bollinger Band lower touch (buy signal)
+    if indicators['close'].iloc[-1] < indicators['bb_lower'].iloc[-1]:
         score += 1
-        conditions.append('Bollinger signal')
-    if indicators['atr_rising']:
+        conditions.append('Bollinger lower band touch')
+
+    # ATR rising = increasing volatility
+    if indicators['atr'].iloc[-1] > indicators['atr'].iloc[-2]:
         score += 1
         conditions.append('ATR rising')
 
     confidence = round((score / 6) * 100, 2)
     return score, confidence, conditions
 
+# Analyze single symbol across timeframes
 def analyze_symbol(symbol):
     try:
         final_signals = []
@@ -70,7 +85,7 @@ def analyze_symbol(symbol):
             indicators = calculate_indicators(df)
             score, confidence, reasons = score_signal(indicators)
 
-            if score >= 4:  # Triple verification
+            if score >= 4:  # Triple verification threshold
                 final_signals.append({
                     'symbol': symbol,
                     'timeframe': tf_label,
@@ -86,6 +101,7 @@ def analyze_symbol(symbol):
         log(f"Error in analyze_symbol for {symbol}: {e}")
         return []
 
+# Analyze all symbols (only USDT pairs)
 def analyze_all_symbols(symbols):
     all_signals = []
     for symbol in symbols:
