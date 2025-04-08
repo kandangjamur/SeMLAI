@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import ta
 
+# ✅ Full indicator calculator for combined analysis
 def calculate_indicators(df):
     df = df.copy()
 
@@ -34,4 +35,25 @@ def calculate_indicators(df):
     # Drop rows again after indicator calculation
     df.dropna(inplace=True)
 
+    return df
+
+# ✅ Mini individual indicator functions
+def get_rsi(df, period=14):
+    df = df.copy()
+    df['rsi'] = ta.momentum.RSIIndicator(close=df['close'], window=period).rsi()
+    df.dropna(inplace=True)
+    return df
+
+def get_macd(df):
+    df = df.copy()
+    macd = ta.trend.MACD(close=df['close'])
+    df['macd'] = macd.macd()
+    df['macd_signal'] = macd.macd_signal()
+    df.dropna(inplace=True)
+    return df
+
+def get_ema(df, period=21):
+    df = df.copy()
+    df[f'ema_{period}'] = ta.trend.EMAIndicator(close=df['close'], window=period).ema_indicator()
+    df.dropna(inplace=True)
     return df
