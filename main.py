@@ -13,46 +13,46 @@ binance_client = Client(
 # Initialize Flask app
 app = Flask(__name__)
 
-# Function to fetch all USDT pairs from Binance
-def get_all_usdt_pairs():
+# Fetch all USDT pairs
+def get_all_usdt_pairs(limit=0):
     try:
         exchange_info = binance_client.get_exchange_info()
-        symbols = [symbol['symbol'] for symbol in exchange_info['symbols'] if symbol['symbol'].endswith('USDT')]
-        return symbols
+        all_pairs = [symbol['symbol'] for symbol in exchange_info['symbols'] if symbol['symbol'].endswith('USDT')]
+        if limit > 0:
+            all_pairs = all_pairs[:limit]
+        log(f"Fetched {len(all_pairs)} USDT pairs.")
+        return all_pairs
     except Exception as e:
         log(f"Error fetching USDT pairs: {e}")
         return []
 
 @app.route('/status', methods=['GET'])
 def status():
-    try:
-        return jsonify({"status": "running"}), 200
-    except Exception as e:
-        log(f"Error in /status: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    return jsonify({"status": "running"}), 200
 
 @app.route('/manualscan', methods=['GET'])
 def manual_scan():
     try:
-        # Fetch all USDT pairs dynamically
-        symbols = get_all_usdt_pairs()
-
+        symbols = get_all_usdt_pairs(limit=50)  # Limit to first 50 for testing
         if not symbols:
             return jsonify({"status": "error", "message": "No USDT pairs found."}), 500
 
-        # Run the analysis on all symbols
+        log("Starting signal analysis on USDT pairs...")
+
         signals = analyze_all_symbols(symbols)
 
         if signals:
+            log(f"{len(signals)} valid signals found.")
+            for sig in signals:
+                log(f"✅ {sig['symbol']} ({sig['timeframe']}): Confidence {sig['confidence']}% | Score {sig['score']}")
             return jsonify({"signals": signals}), 200
         else:
+            log("No valid signals found.")
             return jsonify({"message": "No valid signals found."}), 200
     except Exception as e:
         log(f"Error in /manualscan: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
-    import os
-port = int(os.environ.get("PORT", 8000))
-app.run(host="0.0.0.0", port=port, debug=True)
-
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port, debug=True)
