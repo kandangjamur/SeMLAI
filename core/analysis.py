@@ -43,3 +43,19 @@ def analyze_symbol(symbol):
     except Exception as e:
         log(f"[🔥 ERROR] analyze_symbol failed for {symbol}: {e}")
         return []
+# Analyze all symbols (only USDT pairs)
+def analyze_all_symbols(symbols):
+    all_signals = []
+
+    for symbol in symbols:
+        if not symbol.endswith('USDT'):
+            continue
+
+        print(f"Analyzing {symbol} for signals...")  # For visibility
+
+        signals = analyze_symbol(symbol)
+
+        if signals:
+            all_signals.extend(signals)
+
+    return all_signals
