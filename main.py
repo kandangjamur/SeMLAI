@@ -1,8 +1,10 @@
 import os
+import threading
 from flask import Flask, jsonify
 from binance.client import Client
 from core.analysis import analyze_all_symbols
 from utils.logger import log
+from telegram.bot import run_bot  # ✅ Import Telegram bot starter
 
 # Initialize Binance client
 binance_client = Client(
@@ -13,7 +15,6 @@ binance_client = Client(
 # Initialize Flask app
 app = Flask(__name__)
 
-# Fetch all USDT pairs
 def get_all_usdt_pairs(limit=0):
     try:
         exchange_info = binance_client.get_exchange_info()
@@ -33,7 +34,7 @@ def status():
 @app.route('/manualscan', methods=['GET'])
 def manual_scan():
     try:
-        symbols = get_all_usdt_pairs(limit=50)  # Limit to first 50 for testing
+        symbols = get_all_usdt_pairs(limit=50)
         if not symbols:
             return jsonify({"status": "error", "message": "No USDT pairs found."}), 500
 
@@ -54,20 +55,6 @@ def manual_scan():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
+    threading.Thread(target=run_bot).start()  # ✅ START TELEGRAM BOT FIRST
     port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port, debug=True)
-import threading
-import schedule
-import time
-from telegram.bot import auto_signal_sender
-
-def run_scheduler():
-    schedule.every(5).minutes.do(auto_signal_sender)  # Auto send signals
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
-
-if __name__ == "__main__":
-    threading.Thread(target=run_scheduler).start()
-    port = int(os.environ.get("PORT", 8000))
-    app.run(host="0.0.0.0", port=port, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=True)  # ✅ THEN START FLASK
