@@ -56,3 +56,18 @@ def manual_scan():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port, debug=True)
+import threading
+import schedule
+import time
+from telegram.bot import auto_signal_sender
+
+def run_scheduler():
+    schedule.every(5).minutes.do(auto_signal_sender)  # Auto send signals
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+if __name__ == "__main__":
+    threading.Thread(target=run_scheduler).start()
+    port = int(os.environ.get("PORT", 8000))
+    app.run(host="0.0.0.0", port=port, debug=True)
