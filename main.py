@@ -1,3 +1,5 @@
+from telebot.report_generator import generate_daily_summary
+from datetime import datetime
 from flask import Flask
 from threading import Thread
 from telebot.bot import start_telegram_bot  # ✅ updated import
