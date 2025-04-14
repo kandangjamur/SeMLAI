@@ -4,7 +4,7 @@ from core.indicators import calculate_indicators
 from core.trade_classifier import classify_trade
 from core.whale_detector import whale_check
 from model.predictor import predict_trend
-from telegram.bot import send_signal
+from telebot.bot import send_signal  # ✅ updated import
 from utils.logger import log
 
 def run_analysis_loop():
