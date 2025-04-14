@@ -5,7 +5,7 @@ from core.trade_classifier import classify_trade
 from core.whale_detector import whale_check
 from model.predictor import predict_trend
 from telebot.bot import send_signal
-from utils.logger import log
+from utils.logger import log, log_signal_to_csv  # ✅ Added CSV logger
 
 # ⏳ Memory of last sent signals (symbol → timestamp)
 sent_signals = {}
@@ -52,6 +52,9 @@ def run_analysis_loop():
 
                 # ✅ Save timestamp to memory
                 sent_signals[symbol] = now
+
+                # 🧾 Log to CSV before sending
+                log_signal_to_csv(signal)  # ✅ Add this line
 
                 # 🚀 Send signal
                 log(f"✅ Signal: {symbol} | {signal['trade_type']} | {signal['prediction']} | {signal['confidence']}%")
