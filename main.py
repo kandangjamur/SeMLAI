@@ -1,6 +1,6 @@
 from flask import Flask
 from threading import Thread
-from telegram.bot import start_telegram_bot
+from telebot.bot import start_telegram_bot  # ✅ updated import
 from core.analysis import run_analysis_loop
 from core.news_sentiment import start_sentiment_stream
 from utils.logger import log
