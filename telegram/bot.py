@@ -1,8 +1,8 @@
 from telegram import Bot
 import os
 
-bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN"))
-chat_id = os.getenv("TELEGRAM_CHAT_ID")
+bot = Bot(token=os.getenv("7620836100:AAEEe4yAP18Lxxj0HoYfH8aeX4PetAxYsV0"))
+chat_id = os.getenv("-4694205383")
 
 def send_signal(signal):
     msg = f"🚀 *Crypto Signal*
