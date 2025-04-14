@@ -1,0 +1,10 @@
+flask
+requests
+python-telegram-bot
+ccxt
+pandas
+ta
+matplotlib
+scikit-learn
+numpy
+beautifulsoup4
