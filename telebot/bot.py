@@ -1,25 +1,31 @@
-from telegram import Bot
 import os
+from dotenv import load_dotenv
+from telegram import Bot, ParseMode
+from utils.logger import log
 
-bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN"))
-chat_id = os.getenv("TELEGRAM_CHAT_ID")
+load_dotenv()
+
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
+bot = Bot(token=TOKEN)
 
 def send_signal(signal):
-    msg = (
-        f"🚀 *Crypto Signal*\n\n"
-        f"Symbol: {signal['symbol']}\n"
-        f"Type: {signal['trade_type']}\n"
-        f"Direction: {signal['direction']}\n"
-        f"Price: {signal['price']}\n"
-        f"Leverage: {signal['leverage']}x\n"
-        f"RSI: {signal['rsi']:.2f}\n"
-        f"Confidence: {signal['confidence']}%\n\n"
-        f"🎯 TP1: {signal['tp1']}\n"
-        f"🎯 TP2: {signal['tp2']}\n"
-        f"🎯 TP3: {signal['tp3']}\n"
-        f"🛑 SL: {signal['sl']}"
-    )
-    bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
-
-def start_telegram_bot():
-    print("✅ Telegram bot running...")
+    try:
+        msg = (
+            f"🚀 *Crypto Signal*\n"
+            f"*{signal['symbol']}*\n\n"
+            f"Type: `{signal['trade_type']}`\n"
+            f"Direction: *{signal['prediction']}*\n"
+            f"Confidence: *{signal['confidence']}%*\n"
+            f"Leverage: `{signal.get('leverage', '-')}`\n"
+            f"Price: `{signal['price']}`\n\n"
+            f"🎯 TP1: `{signal['tp1']}`\n"
+            f"🎯 TP2: `{signal['tp2']}`\n"
+            f"🎯 TP3: `{signal['tp3']}`\n"
+            f"🛡 SL: `{signal['sl']}`"
+        )
+        bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode=ParseMode.MARKDOWN)
+        log(f"📩 Telegram sent: {signal['symbol']}")
+    except Exception as e:
+        log(f"❌ Telegram Send Error: {e}")
