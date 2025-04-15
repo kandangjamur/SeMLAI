@@ -23,3 +23,7 @@ def get_sentiment_boost(symbol):
     if symbol in trending:
         return 10
     return 0
+
+# ✅ Dummy function added just to fix the ImportError in main.py
+def start_sentiment_stream():
+    print("[Sentiment] start_sentiment_stream() called — dummy placeholder.")
