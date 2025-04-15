@@ -10,3 +10,4 @@ matplotlib
 scikit-learn
 numpy
 beautifulsoup4
+python-dotenv
