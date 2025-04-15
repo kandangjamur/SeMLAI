@@ -10,6 +10,9 @@ def fetch_trending_coins():
         soup = BeautifulSoup(response.text, "html.parser")
         names = soup.select("tbody tr td:nth-of-type(3) a")
         trending = [name.text.strip().upper() + "/USDT" for name in names[:10]]
+
+        print(f"[TRENDING] {trending}")  # ✅ YEH LINE YAHAN LAGANI HAI
+
         return trending
     except Exception as e:
         print(f"[Trending Fetch Error] {e}")
