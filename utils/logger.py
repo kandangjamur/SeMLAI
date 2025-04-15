@@ -9,7 +9,7 @@ def log_signal_to_csv(signal):
     log_path = "logs/signals_log.csv"
     os.makedirs("logs", exist_ok=True)
     file_exists = os.path.isfile(log_path)
-    
+
     with open(log_path, "a", newline="") as csvfile:
         writer = csv.writer(csvfile)
         if not file_exists:
