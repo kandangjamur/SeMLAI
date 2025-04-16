@@ -19,21 +19,29 @@ def daily_report_loop():
     while True:
         now = datetime.now()
         if now.hour == 23 and now.minute == 59:
-            log("📝 Generating daily summary...")
             generate_daily_summary()
         time.sleep(60)
 
 def tracker_loop():
     while True:
-        log("🔁 Running TP/SL tracker...")
         update_signal_status()
         time.sleep(600)
 
+# 🧠 Heartbeat to keep instance alive
+def heartbeat():
+    while True:
+        log("❤️ Still alive - Sniper running...")
+        time.sleep(300)
+
 if __name__ == "__main__":
     log("🚀 Starting Crypto Sniper...")
-    Thread(target=start_telegram_bot).start()
-    Thread(target=run_analysis_loop).start()
-    Thread(target=start_sentiment_stream).start()
-    Thread(target=daily_report_loop).start()
-    Thread(target=tracker_loop).start()
-    app.run(host="0.0.0.0", port=8000)
+    try:
+        Thread(target=start_telegram_bot).start()
+        Thread(target=run_analysis_loop).start()
+        Thread(target=start_sentiment_stream).start()
+        Thread(target=daily_report_loop).start()
+        Thread(target=tracker_loop).start()
+        Thread(target=heartbeat).start()
+        app.run(host="0.0.0.0", port=8000)
+    except Exception as e:
+        log(f"❌ Main Crash: {e}")
