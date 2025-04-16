@@ -43,10 +43,10 @@ def calculate_indicators(symbol, ohlcv):
     if confidence < 65:
         return None
 
-    # Trade Type Logic (as per your rules)
-    if confidence > 90:
+    # Trade Type Logic (adjusted to include >= 90 for Spot)
+    if confidence >= 90:
         trade_type = "Spot"
-    elif 75 <= confidence <= 90:
+    elif 75 <= confidence < 90:
         trade_type = "Normal"
     else:  # 65 <= confidence < 75
         trade_type = "Scalping"
@@ -61,7 +61,7 @@ def calculate_indicators(symbol, ohlcv):
 
     # ✅ Dynamic Leverage (unchanged)
     if trade_type == "Spot":
-        leverage = 1
+        leverage = 1  # Spot doesn't support leverage
     elif trade_type == "Scalping":
         leverage = round(min(50, max(10, latest["atr"] * 100)), 1)
     else:  # Normal
