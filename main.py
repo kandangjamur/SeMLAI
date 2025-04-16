@@ -15,7 +15,6 @@ app = Flask(__name__)
 def home():
     return "Crypto Sniper AI Bot is Live!"
 
-# Daily Summary Generator (at 23:59)
 def daily_report_loop():
     while True:
         now = datetime.now()
@@ -24,7 +23,6 @@ def daily_report_loop():
             generate_daily_summary()
         time.sleep(60)
 
-# Auto TP/SL Updater
 def tracker_loop():
     while True:
         log("🔁 Running TP/SL tracker...")
