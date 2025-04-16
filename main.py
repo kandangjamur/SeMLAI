@@ -20,14 +20,16 @@ def daily_report_loop():
     while True:
         now = datetime.now()
         if now.hour == 23 and now.minute == 59:
+            log("📝 Generating daily summary...")
             generate_daily_summary()
         time.sleep(60)
 
 # Auto TP/SL Updater
 def tracker_loop():
     while True:
+        log("🔁 Running TP/SL tracker...")
         update_signal_status()
-        time.sleep(600)  # Every 10 mins
+        time.sleep(600)
 
 if __name__ == "__main__":
     log("🚀 Starting Crypto Sniper...")
