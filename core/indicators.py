@@ -39,27 +39,30 @@ def calculate_indicators(symbol, ohlcv):
     if latest["atr"] > 0:
         confidence += 10
 
-    # Trade Type
-    if confidence >= 90:
+    # Skip weak signals below 65%
+    if confidence < 65:
+        return None
+
+    # Trade Type Logic (as per your rules)
+    if confidence > 90:
         trade_type = "Spot"
-    elif confidence >= 75:
+    elif 75 <= confidence <= 90:
         trade_type = "Normal"
-    else:
+    else:  # 65 <= confidence < 75
         trade_type = "Scalping"
 
     close = latest["close"]
 
-    # TP / SL
+    # TP / SL Calculation
     tp1 = round(close * 1.01, 3)
     tp2 = round(close * 1.03, 3)
     tp3 = round(close * 1.05, 3)
     sl = round(close * 0.98, 3)
 
-    # ✅ Dynamic Leverage (real logic)
+    # ✅ Dynamic Leverage (unchanged)
     if trade_type == "Spot":
-        leverage = 1  # Spot doesn't support leverage
+        leverage = 1
     elif trade_type == "Scalping":
-        # More volatility = higher leverage
         leverage = round(min(50, max(10, latest["atr"] * 100)), 1)
     else:  # Normal
         leverage = round(min(20, max(5, latest["atr"] * 50)), 1)
