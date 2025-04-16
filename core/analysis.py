@@ -8,6 +8,7 @@ from telebot.bot import send_signal
 from utils.logger import log, log_signal_to_csv
 from core.news_sentiment import get_sentiment_boost
 
+# Store last sent signal times
 sent_signals = {}
 
 def run_analysis_loop():
@@ -15,7 +16,8 @@ def run_analysis_loop():
     exchange = ccxt.binance()
     markets = exchange.load_markets()
 
-   symbols = [s for s in markets if '/USDT' in s]
+    # Temporarily remove volume filter for full scan
+    symbols = [s for s in markets if '/USDT' in s]
     log(f"🔢 Total USDT Pairs Loaded: {len(symbols)}")
 
     while True:
@@ -23,53 +25,63 @@ def run_analysis_loop():
             log("🔁 Starting new scan cycle")
             for symbol in symbols:
                 log(f"🔍 Scanning: {symbol}")
+
+                # Fetch historical candles
                 try:
                     ohlcv = exchange.fetch_ohlcv(symbol, '15m', limit=100)
                 except Exception as e:
-                    log(f"⚠️ Failed to fetch OHLCV for {symbol}: {e}")
+                    log(f"⚠️ Failed to fetch candles for {symbol}: {e}")
                     continue
 
+                # Calculate indicators
                 signal = calculate_indicators(symbol, ohlcv)
                 if not signal:
-                    log(f"⛔ No valid setup found for {symbol}")
+                    log(f"⛔ No signal for {symbol}")
                     continue
 
-                log(f"📈 Score: {signal.get('score', '-')}/6 | Confidence: {signal['confidence']}%")
-
+                # Apply sentiment boost if trending
                 sentiment_boost = get_sentiment_boost(symbol)
                 signal['confidence'] += sentiment_boost
-                log(f"🧠 Sentiment Boost: +{sentiment_boost}% → Final: {signal['confidence']}%")
 
+                # Filter by confidence
                 if signal['trade_type'] == "Scalping" and signal['confidence'] < 75:
-                    log(f"⚠️ Skipping {symbol} (Scalping < 75%)")
+                    log(f"⏩ Skipped {symbol} (Scalping < 75%)")
                     continue
                 elif signal['confidence'] < 85:
-                    log(f"⚠️ Skipping {symbol} (< 85% Confidence)")
+                    log(f"⏩ Skipped {symbol} (< 85% Confidence)")
                     continue
 
+                # Prevent duplicate signal within 30 min
                 now = time.time()
                 if symbol in sent_signals and now - sent_signals[symbol] < 1800:
-                    log(f"🔁 Skipped recent signal for {symbol}")
+                    log(f"🔁 Skipped duplicate: {symbol}")
                     continue
 
+                # Check whale volume
                 if not whale_check(symbol, exchange):
-                    log(f"🐋 No whale confirmation for {symbol}")
+                    log(f"🐋 No whale activity: {symbol}")
                     continue
 
+                # Predict trend
                 signal['prediction'] = predict_trend(symbol, ohlcv)
+
+                # Classify trade
                 signal['trade_type'] = classify_trade(signal)
+
+                # Enforce LONG only for Spot trades
                 if signal['trade_type'] == "Spot":
                     signal['prediction'] = "LONG"
 
+                # Save send timestamp
                 sent_signals[symbol] = now
+
+                # Log and send
                 log_signal_to_csv(signal)
-
-                log(f"✅ Signal SENT: {symbol} | {signal['trade_type']} | {signal['prediction']} | {signal['confidence']}%")
+                log(f"✅ Signal: {symbol} | {signal['trade_type']} | {signal['prediction']} | {signal['confidence']}%")
                 send_signal(signal)
-
-            log("⏳ Waiting 2 min before next scan cycle...\n")
-            time.sleep(120)
 
         except Exception as e:
             log(f"❌ Analysis Error: {e}")
-            time.sleep(60)
+
+        log("⏳ Waiting 2 min before next scan cycle...")
+        time.sleep(120)
