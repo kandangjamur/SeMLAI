@@ -39,7 +39,7 @@ def calculate_indicators(symbol, ohlcv):
     if latest["atr"] > 0:
         confidence += 10
 
-    trade_type = "Normal"
+    # Trade Type
     if confidence >= 90:
         trade_type = "Spot"
     elif confidence >= 75:
@@ -47,10 +47,26 @@ def calculate_indicators(symbol, ohlcv):
     else:
         trade_type = "Scalping"
 
+    close = latest["close"]
+
+    # TP / SL
+    tp1 = round(close * 1.01, 3)
+    tp2 = round(close * 1.03, 3)
+    tp3 = round(close * 1.05, 3)
+    sl = round(close * 0.98, 3)
+
+    # Leverage (example logic - you can update)
+    leverage = 3 if trade_type == "Scalping" else (2 if trade_type == "Normal" else 1)
+
     return {
         "symbol": symbol,
-        "price": latest["close"],
+        "price": close,
         "confidence": confidence,
         "trade_type": trade_type,
-        "timestamp": latest["timestamp"]
+        "timestamp": latest["timestamp"],
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3": tp3,
+        "sl": sl,
+        "leverage": leverage
     }
