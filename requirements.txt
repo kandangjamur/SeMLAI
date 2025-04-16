@@ -18,5 +18,8 @@ ta
 requests
 beautifulsoup4
 
+# --- CSV Logging & Reporting ---
+openpyxl
+
 # --- Optional (for future chart reports) ---
 matplotlib
