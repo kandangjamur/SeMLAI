@@ -55,8 +55,14 @@ def calculate_indicators(symbol, ohlcv):
     tp3 = round(close * 1.05, 3)
     sl = round(close * 0.98, 3)
 
-    # Leverage (example logic - you can update)
-    leverage = 3 if trade_type == "Scalping" else (2 if trade_type == "Normal" else 1)
+    # ✅ Dynamic Leverage (real logic)
+    if trade_type == "Spot":
+        leverage = 1  # Spot doesn't support leverage
+    elif trade_type == "Scalping":
+        # More volatility = higher leverage
+        leverage = round(min(50, max(10, latest["atr"] * 100)), 1)
+    else:  # Normal
+        leverage = round(min(20, max(5, latest["atr"] * 50)), 1)
 
     return {
         "symbol": symbol,
