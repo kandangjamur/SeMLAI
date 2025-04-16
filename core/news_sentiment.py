@@ -11,8 +11,7 @@ def fetch_trending_coins():
         names = soup.select("tbody tr td:nth-of-type(3) a")
         trending = [name.text.strip().upper() + "/USDT" for name in names[:10]]
 
-        print(f"[TRENDING] {trending}")  # ✅ YEH LINE YAHAN LAGANI HAI
-
+        print(f"[TRENDING] {trending}")
         return trending
     except Exception as e:
         print(f"[Trending Fetch Error] {e}")
@@ -23,7 +22,3 @@ def get_sentiment_boost(symbol):
     if symbol in trending:
         return 10
     return 0
-
-# ✅ Dummy function added just to fix the ImportError in main.py
-def start_sentiment_stream():
-    print("[Sentiment] start_sentiment_stream() called — dummy placeholder.")
