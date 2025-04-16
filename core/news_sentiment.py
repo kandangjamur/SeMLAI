@@ -1,3 +1,5 @@
+# core/news_sentiment.py
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -19,6 +21,12 @@ def fetch_trending_coins():
 
 def get_sentiment_boost(symbol):
     trending = fetch_trending_coins()
-    if symbol in trending:
+    if symbol.upper() in trending:
+        print(f"[SENTIMENT BOOST] {symbol} is trending! +10 boost applied.")
         return 10
     return 0
+
+def start_sentiment_stream():
+    print("[Sentiment] Sentiment stream initialized.")
+    # Ye function ab bas system ko init kar raha hai
+    # Real-time news stream agar add karni ho to uska block alag milega
