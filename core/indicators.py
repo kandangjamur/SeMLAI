@@ -3,74 +3,54 @@ import ta
 
 def calculate_indicators(symbol, ohlcv):
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
+    df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
+    df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+    macd = ta.trend.MACD(df["close"])
+    df["macd"] = macd.macd()
+    df["macd_signal"] = macd.macd_signal()
+    df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
+    df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
-    # Indicators
-    df['rsi'] = ta.momentum.RSIIndicator(df['close']).rsi()
-    df['ema'] = ta.trend.EMAIndicator(df['close']).ema_indicator()
-    df['macd'] = ta.trend.MACD(df['close']).macd()
-    df['atr'] = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close']).average_true_range()
+    if len(df) < 50:
+        return None
 
-    bb = ta.volatility.BollingerBands(df['close'])
-    df['bb_low'] = bb.bollinger_lband()
+    latest = df.iloc[-1]
 
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
+    confidence = 0
 
-    score = 0
+    # EMA Crossover
+    if latest["ema_20"] > latest["ema_50"]:
+        confidence += 25
 
-    # RSI logic
-    if last['rsi'] < 30:
-        score += 35
-    elif last['rsi'] < 50:
-        score += 20
+    # RSI in bullish zone
+    if latest["rsi"] > 50:
+        confidence += 20
 
-    # EMA
-    if last['close'] > last['ema']:
-        score += 20
+    # MACD Bullish
+    if latest["macd"] > latest["macd_signal"]:
+        confidence += 20
 
-    # MACD
-    if last['macd'] > 0:
-        score += 20
+    # Volume spike
+    if latest["volume"] > 1.5 * latest["volume_sma"]:
+        confidence += 15
 
-    # Candle strength
-    if last['close'] > prev['close']:
-        score += 10
+    # ATR confirms volatility
+    if latest["atr"] > 0:
+        confidence += 10
 
-    # Volume spike + BB breakout
-    avg_vol = df['volume'].rolling(10).mean().iloc[-1]
-    if last['volume'] > 2 * avg_vol and last['close'] < last['bb_low']:
-        score += 10
-
-    confidence = min(score, 100)
-
-    # Direction logic
-    if last['macd'] > 0 and last['close'] > last['ema']:
-        direction = "LONG"
-    elif last['macd'] < 0 and last['close'] < last['ema']:
-        direction = "SHORT"
+    trade_type = "Normal"
+    if confidence >= 90:
+        trade_type = "Spot"
+    elif confidence >= 75:
+        trade_type = "Normal"
     else:
-        direction = "SIDEWAYS"
-
-    entry = last['close']
-    atr = last['atr']
-    tp1 = round(entry + atr * 1.2, 4) if direction == "LONG" else round(entry - atr * 1.2, 4)
-    tp2 = round(entry + atr * 1.8, 4) if direction == "LONG" else round(entry - atr * 1.8, 4)
-    tp3 = round(entry + atr * 2.4, 4) if direction == "LONG" else round(entry - atr * 2.4, 4)
-    sl = round(entry - atr * 1.0, 4) if direction == "LONG" else round(entry + atr * 1.0, 4)
-
-    leverage = 5 if confidence < 90 else 10 if confidence < 95 else 15
+        trade_type = "Scalping"
 
     return {
-        'symbol': symbol,
-        'price': entry,
-        'rsi': last['rsi'],
-        'macd': last['macd'],
-        'confidence': confidence,
-        'direction': direction,
-        'type': 'BUY' if direction == 'LONG' else 'SELL',
-        'leverage': leverage,
-        'tp1': tp1,
-        'tp2': tp2,
-        'tp3': tp3,
-        'sl': sl
+        "symbol": symbol,
+        "price": latest["close"],
+        "confidence": confidence,
+        "trade_type": trade_type,
+        "timestamp": latest["timestamp"]
     }
