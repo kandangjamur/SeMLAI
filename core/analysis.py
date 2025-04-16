@@ -6,7 +6,7 @@ from core.whale_detector import whale_check
 from model.predictor import predict_trend
 from telebot.bot import send_signal
 from utils.logger import log, log_signal_to_csv
-from core.news_sentiment import get_sentiment_boost
+from core.news_sentiment import get_sentiment_boost, fetch_trending_coins
 
 # Store last sent signal times
 sent_signals = {}
@@ -16,8 +16,11 @@ def run_analysis_loop():
     exchange = ccxt.binance()
     markets = exchange.load_markets()
 
-    # Temporarily remove volume filter for full scan
-    symbols = [s for s in markets if '/USDT' in s]
+    # ✅ Trending + All Binance USDT Pairs
+    all_symbols = [s for s in markets if '/USDT' in s]
+    trending = fetch_trending_coins()
+    log(f"[TRENDING] {trending}")
+    symbols = list(set(all_symbols + trending))  # ✅ Merge and remove duplicates
     log(f"🔢 Total USDT Pairs Loaded: {len(symbols)}")
 
     while True:
@@ -39,14 +42,14 @@ def run_analysis_loop():
                     log(f"⛔ No signal for {symbol}")
                     continue
 
-                # Apply sentiment boost if trending
+                # Add sentiment confidence boost
                 sentiment_boost = get_sentiment_boost(symbol)
                 signal['confidence'] += sentiment_boost
 
-                # 🔧 FIXED LINE HERE
-                signal['trade_type'] = classify_trade(signal)  # 🔥 Now it's defined before using
+                # 🧠 Classify trade before confidence filter
+                signal['trade_type'] = classify_trade(signal)
 
-                # Filter by confidence
+                # Confidence-based filtering
                 if signal['trade_type'] == "Scalping" and signal['confidence'] < 75:
                     log(f"⏩ Skipped {symbol} (Scalping < 75%)")
                     continue
@@ -54,30 +57,30 @@ def run_analysis_loop():
                     log(f"⏩ Skipped {symbol} (< 85% Confidence)")
                     continue
 
-                # Prevent duplicate signal within 30 min
+                # Skip duplicate signals (30 min window)
                 now = time.time()
                 if symbol in sent_signals and now - sent_signals[symbol] < 1800:
                     log(f"🔁 Skipped duplicate: {symbol}")
                     continue
 
-                # Check whale volume
+                # Whale volume check
                 if not whale_check(symbol, exchange):
                     log(f"🐋 No whale activity: {symbol}")
                     continue
 
-                # Predict trend
+                # Trend prediction
                 signal['prediction'] = predict_trend(symbol, ohlcv)
 
-                # Enforce LONG only for Spot trades
+                # Spot trades always LONG
                 if signal['trade_type'] == "Spot":
                     signal['prediction'] = "LONG"
 
-                # Save send timestamp
+                # Save time & log
                 sent_signals[symbol] = now
-
-                # Log and send
                 log_signal_to_csv(signal)
                 log(f"✅ Signal: {symbol} | {signal['trade_type']} | {signal['prediction']} | {signal['confidence']}%")
+
+                # Send signal
                 send_signal(signal)
 
         except Exception as e:
