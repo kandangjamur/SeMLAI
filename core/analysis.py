@@ -15,7 +15,7 @@ def run_analysis_loop():
     exchange = ccxt.binance()
     markets = exchange.load_markets()
 
-    symbols = [s for s in markets if '/USDT' in s and markets[s].get('quoteVolume', 0) > 1_000_000]
+   symbols = [s for s in markets if '/USDT' in s]
     log(f"🔢 Total USDT Pairs Loaded: {len(symbols)}")
 
     while True:
