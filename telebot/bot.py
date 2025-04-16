@@ -29,6 +29,6 @@ def send_signal(signal):
         log(f"📩 Telegram sent: {signal['symbol']}")
     except Exception as e:
         log(f"❌ Telegram Send Error: {e}")
-        def start_telegram_bot():
-    log("✅ Telegram bot is active (send_signal is ready).")
 
+def start_telegram_bot():
+    log("✅ Telegram bot is active (send_signal is ready).")
