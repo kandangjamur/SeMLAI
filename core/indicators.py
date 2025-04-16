@@ -1,6 +1,3 @@
-import pandas as pd
-import ta
-
 def calculate_indicators(symbol, ohlcv):
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
     df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
@@ -21,29 +18,29 @@ def calculate_indicators(symbol, ohlcv):
 
     # EMA Crossover
     if latest["ema_20"] > latest["ema_50"]:
-        confidence += 25
-
-    # RSI in bullish zone
-    if latest["rsi"] > 50:
         confidence += 20
 
-    # MACD Bullish
-    if latest["macd"] > latest["macd_signal"]:
-        confidence += 20
-
-    # Volume spike
-    if latest["volume"] > 1.5 * latest["volume_sma"]:
+    # RSI in bullish zone (only add 15 points if RSI > 60, to be more selective)
+    if latest["rsi"] > 60:
         confidence += 15
 
-    # ATR confirms volatility
-    if latest["atr"] > 0:
+    # MACD Bullish (we'll only add 15 if MACD > Signal by a certain margin)
+    if latest["macd"] > latest["macd_signal"] and (latest["macd"] - latest["macd_signal"]) > 0.01:
+        confidence += 15
+
+    # Volume spike (increase the multiplier for more strictness)
+    if latest["volume"] > 2 * latest["volume_sma"]:
+        confidence += 10
+
+    # ATR confirms volatility (adjust for stricter volatility condition)
+    if latest["atr"] > 0.5:
         confidence += 10
 
     # Skip weak signals below 65%
     if confidence < 65:
         return None
 
-    # Trade Type Logic (adjusted to include >= 90 for Spot)
+    # Trade Type Logic (as per your rules)
     if confidence >= 90:
         trade_type = "Spot"
     elif 75 <= confidence < 90:
@@ -61,7 +58,7 @@ def calculate_indicators(symbol, ohlcv):
 
     # ✅ Dynamic Leverage (unchanged)
     if trade_type == "Spot":
-        leverage = 1  # Spot doesn't support leverage
+        leverage = 1
     elif trade_type == "Scalping":
         leverage = round(min(50, max(10, latest["atr"] * 100)), 1)
     else:  # Normal
