@@ -9,6 +9,7 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 bot = Bot(token=TOKEN)
+chat_id = CHAT_ID  # ✅ Added for import compatibility (lowercase version)
 
 def send_signal(signal):
     try:
@@ -30,6 +31,5 @@ def send_signal(signal):
     except Exception as e:
         log(f"❌ Telegram Send Error: {e}")
 
-# ✅ THIS was missing 👇
 def start_telegram_bot():
     log("✅ Telegram bot is active (send_signal is ready).")
