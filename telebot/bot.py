@@ -9,7 +9,6 @@ TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 bot = Bot(token=TOKEN)
-chat_id = CHAT_ID  # ✅ Added for import compatibility (lowercase version)
 
 def send_signal(signal):
     try:
