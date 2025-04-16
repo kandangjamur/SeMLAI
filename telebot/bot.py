@@ -16,14 +16,14 @@ def send_signal(signal):
             f"🚀 *Crypto Signal*\n"
             f"*{signal['symbol']}*\n\n"
             f"Type: `{signal['trade_type']}`\n"
-            f"Direction: *{signal['prediction']}*\n"
+            f"Direction: *{signal.get('prediction', 'N/A')}*\n"
             f"Confidence: *{signal['confidence']}%*\n"
             f"Leverage: `{signal.get('leverage', '-')}`\n"
             f"Price: `{signal['price']}`\n\n"
-            f"🎯 TP1: `{signal['tp1']}`\n"
-            f"🎯 TP2: `{signal['tp2']}`\n"
-            f"🎯 TP3: `{signal['tp3']}`\n"
-            f"🛡 SL: `{signal['sl']}`"
+            f"🎯 TP1: `{signal.get('tp1', '-')}`\n"
+            f"🎯 TP2: `{signal.get('tp2', '-')}`\n"
+            f"🎯 TP3: `{signal.get('tp3', '-')}`\n"
+            f"🛡 SL: `{signal.get('sl', '-')}`"
         )
         bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode=ParseMode.MARKDOWN)
         log(f"📩 Telegram sent: {signal['symbol']}")
