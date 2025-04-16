@@ -6,15 +6,15 @@ from datetime import datetime
 from utils.logger import log
 
 def update_signal_status():
-    log_path = "logs/signals_log.csv"
-    if not os.path.exists(log_path):
+    path = "logs/signals_log.csv"
+    if not os.path.exists(path):
         log("❌ Log file not found.")
         return
 
     exchange = ccxt.binance()
     updated_rows = []
 
-    with open(log_path, "r") as f:
+    with open(path, "r") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
 
@@ -62,7 +62,7 @@ def update_signal_status():
         updated_rows.append(row)
         log(f"[TRACKER] {symbol} → {status}")
 
-    with open(log_path, "w", newline="") as f:
+    with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=rows[0].keys())
         writer.writeheader()
         writer.writerows(updated_rows)
