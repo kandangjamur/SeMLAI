@@ -50,11 +50,11 @@ def run_analysis_loop():
                 signal['trade_type'] = classify_trade(signal)
 
                 # Confidence-based filtering
-                if signal['trade_type'] == "Scalping" and signal['confidence'] < 75:
-                    log(f"⏩ Skipped {symbol} (Scalping < 75%)")
+                if signal['trade_type'] == "Scalping" and signal['confidence'] < 60:
+                    log(f"⏩ Skipped {symbol} (Scalping < 60%)")
                     continue
-                elif signal['confidence'] < 85:
-                    log(f"⏩ Skipped {symbol} (< 85% Confidence)")
+                elif signal['confidence'] < 70:
+                    log(f"⏩ Skipped {symbol} (< 70% Confidence)")
                     continue
 
                 # Skip duplicate signals (30 min window)
