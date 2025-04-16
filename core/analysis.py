@@ -43,6 +43,9 @@ def run_analysis_loop():
                 sentiment_boost = get_sentiment_boost(symbol)
                 signal['confidence'] += sentiment_boost
 
+                # 🔧 FIXED LINE HERE
+                signal['trade_type'] = classify_trade(signal)  # 🔥 Now it's defined before using
+
                 # Filter by confidence
                 if signal['trade_type'] == "Scalping" and signal['confidence'] < 75:
                     log(f"⏩ Skipped {symbol} (Scalping < 75%)")
@@ -64,9 +67,6 @@ def run_analysis_loop():
 
                 # Predict trend
                 signal['prediction'] = predict_trend(symbol, ohlcv)
-
-                # Classify trade
-                signal['trade_type'] = classify_trade(signal)
 
                 # Enforce LONG only for Spot trades
                 if signal['trade_type'] == "Spot":
