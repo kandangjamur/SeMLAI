@@ -1,6 +1,6 @@
 import csv
 from datetime import datetime
-from telebot.bot import bot, chat_id
+from telebot.bot import bot, CHAT_ID
 import os
 
 def generate_daily_summary():
@@ -58,4 +58,4 @@ Total Signals Sent: {total}
 ✅ Overall Success Rate: {round(((tp1 + tp2 + tp3) / total)*100, 2) if total else 0}%
 """
 
-    bot.send_message(chat_id=chat_id, text=msg)
+    bot.send_message(chat_id=CHAT_ID, text=msg)
