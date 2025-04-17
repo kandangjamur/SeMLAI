@@ -1,3 +1,5 @@
+import pandas as pd
+import ta
 def calculate_indicators(symbol, ohlcv):
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
     df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
