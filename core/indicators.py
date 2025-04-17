@@ -1,5 +1,6 @@
 import pandas as pd
 import ta
+
 def calculate_indicators(symbol, ohlcv):
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
     df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
@@ -15,60 +16,37 @@ def calculate_indicators(symbol, ohlcv):
         return None
 
     latest = df.iloc[-1]
-
     confidence = 0
 
-    # EMA Crossover
     if latest["ema_20"] > latest["ema_50"]:
+        confidence += 25
+    if latest["rsi"] > 50:
         confidence += 20
-
-    # RSI in bullish zone (only add 15 points if RSI > 60, to be more selective)
-    if latest["rsi"] > 60:
+    if latest["macd"] > latest["macd_signal"]:
+        confidence += 20
+    if latest["volume"] > 1.5 * latest["volume_sma"]:
         confidence += 15
-
-    # MACD Bullish (we'll only add 15 if MACD > Signal by a certain margin)
-    if latest["macd"] > latest["macd_signal"] and (latest["macd"] - latest["macd_signal"]) > 0.01:
-        confidence += 15
-
-    # Volume spike (increase the multiplier for more strictness)
-    if latest["volume"] > 2 * latest["volume_sma"]:
+    if latest["atr"] > 0:
         confidence += 10
 
-    # ATR confirms volatility (adjust for stricter volatility condition)
-    if latest["atr"] > 0.5:
-        confidence += 10
-
-    # Skip weak signals below 65%
-    if confidence < 65:
-        return None
-
-    # Trade Type Logic (as per your rules)
     if confidence >= 90:
         trade_type = "Spot"
-    elif 75 <= confidence < 90:
+    elif confidence >= 75:
         trade_type = "Normal"
-    else:  # 65 <= confidence < 75
+    else:
         trade_type = "Scalping"
 
-    close = latest["close"]
+    price = latest["close"]
+    tp1 = round(price * 1.01, 3)
+    tp2 = round(price * 1.03, 3)
+    tp3 = round(price * 1.05, 3)
+    sl = round(price * 0.98, 3)
 
-    # TP / SL Calculation
-    tp1 = round(close * 1.01, 3)
-    tp2 = round(close * 1.03, 3)
-    tp3 = round(close * 1.05, 3)
-    sl = round(close * 0.98, 3)
-
-    # ✅ Dynamic Leverage (unchanged)
-    if trade_type == "Spot":
-        leverage = 1
-    elif trade_type == "Scalping":
-        leverage = round(min(50, max(10, latest["atr"] * 100)), 1)
-    else:  # Normal
-        leverage = round(min(20, max(5, latest["atr"] * 50)), 1)
+    leverage = 0 if trade_type == "Spot" else (20 if confidence < 85 else 30 if confidence < 95 else 50)
 
     return {
         "symbol": symbol,
-        "price": close,
+        "price": price,
         "confidence": confidence,
         "trade_type": trade_type,
         "timestamp": latest["timestamp"],
