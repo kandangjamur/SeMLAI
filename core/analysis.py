@@ -14,7 +14,7 @@ def run_analysis_loop():
     log("📊 Starting Market Scan")
     exchange = ccxt.binance()
     markets = exchange.load_markets()
-    symbols = [s for s in markets if '/USDT' in s and ':' not in s]
+    symbols = [s for s in markets if '/USDT' in s]
     log(f"🔢 Total USDT Pairs Loaded: {len(symbols)}")
 
     while True:
@@ -22,6 +22,7 @@ def run_analysis_loop():
             log("🔁 Starting new scan cycle")
             for symbol in symbols:
                 log(f"🔍 Scanning: {symbol}")
+
                 try:
                     ohlcv = exchange.fetch_ohlcv(symbol, '15m', limit=100)
                 except Exception as e:
@@ -35,22 +36,15 @@ def run_analysis_loop():
 
                 sentiment_boost = get_sentiment_boost(symbol)
                 signal['confidence'] += sentiment_boost
+                signal['trade_type'] = classify_trade(signal)
 
-                trade_type = classify_trade(signal)
-                if trade_type not in ["Scalping", "Normal"]:
-                    log(f"❌ Unsupported Trade Type: {trade_type}, Skipping {symbol}")
-                    continue
-
-                signal['trade_type'] = trade_type
-                log(f"📈 Confidence: {signal['confidence']}% | Type: {signal['trade_type']}")
-
-                if signal['trade_type'] == "Scalping" and signal['confidence'] < 75:
-                    continue
-                elif signal['confidence'] < 85:
+                if signal['confidence'] < 60:
+                    log(f"⏩ Skipped {symbol} (< 60% Confidence)")
                     continue
 
                 now = time.time()
                 if symbol in sent_signals and now - sent_signals[symbol] < 1800:
+                    log(f"🔁 Skipped duplicate: {symbol}")
                     continue
 
                 if not whale_check(symbol, exchange):
@@ -59,7 +53,12 @@ def run_analysis_loop():
 
                 signal['prediction'] = predict_trend(symbol, ohlcv)
 
+                # REMOVE SPOT override
+                # if signal['trade_type'] == "Spot":
+                #     signal['prediction'] = "LONG"
+
                 sent_signals[symbol] = now
+
                 log_signal_to_csv(signal)
                 log(f"✅ Signal: {symbol} | {signal['trade_type']} | {signal['prediction']} | {signal['confidence']}%")
                 send_signal(signal)
