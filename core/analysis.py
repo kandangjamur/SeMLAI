@@ -53,6 +53,25 @@ def run_analysis_loop():
                 signal['prediction'] = predict_trend(symbol, ohlcv)
                 sent_signals[symbol] = now
 
+                # Predict trend
+signal['prediction'] = predict_trend(symbol, ohlcv)
+
+# Calculate TP/SL based on direction
+price = signal['price']
+atr = signal['atr']
+
+if signal['prediction'] == "LONG":
+    signal['tp1'] = round(price * 1.01, 3)
+    signal['tp2'] = round(price * 1.03, 3)
+    signal['tp3'] = round(price * 1.05, 3)
+    signal['sl'] = round(price * 0.98, 3)
+else:  # SHORT
+    signal['tp1'] = round(price * 0.99, 3)
+    signal['tp2'] = round(price * 0.97, 3)
+    signal['tp3'] = round(price * 0.95, 3)
+    signal['sl'] = round(price * 1.02, 3)
+
+
                 log_signal_to_csv(signal)
                 log(f"✅ Signal: {symbol} | {signal['trade_type']} | {signal['prediction']} | {signal['confidence']}%")
                 send_signal(signal)
