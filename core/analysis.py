@@ -35,8 +35,13 @@ def run_analysis_loop():
 
                 sentiment_boost = get_sentiment_boost(symbol)
                 signal['confidence'] += sentiment_boost
-                signal['trade_type'] = classify_trade(signal)
 
+                trade_type = classify_trade(signal)
+                if trade_type not in ["Scalping", "Normal"]:
+                    log(f"❌ Unsupported Trade Type: {trade_type}, Skipping {symbol}")
+                    continue
+
+                signal['trade_type'] = trade_type
                 log(f"📈 Confidence: {signal['confidence']}% | Type: {signal['trade_type']}")
 
                 if signal['trade_type'] == "Scalping" and signal['confidence'] < 75:
@@ -53,8 +58,6 @@ def run_analysis_loop():
                     continue
 
                 signal['prediction'] = predict_trend(symbol, ohlcv)
-                if signal['trade_type'] == "Spot":
-                    signal['prediction'] = "LONG"
 
                 sent_signals[symbol] = now
                 log_signal_to_csv(signal)
