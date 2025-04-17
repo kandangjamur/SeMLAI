@@ -1,64 +1,33 @@
-# 📁 data/collector.py
-
-import ccxt
 import os
-import pandas as pd
+import ccxt
 import json
+import time
 from datetime import datetime
 
-exchange = ccxt.binance()
+def fetch_all_ohlcv():
+    exchange = ccxt.binance()
+    markets = exchange.load_markets()
+    symbols = [s for s in markets if '/USDT' in s and ':' not in s]
 
-# ------------ CONFIGURATION ------------
-TIMEFRAMES = ['15m', '1h', '4h']  # You can add '30m', '1d' etc.
-DATA_LIMIT = 500  # Max candles per fetch
-OUTPUT_FORMAT = 'csv'  # or 'json' or 'pandas'
-SYMBOL_FILTER = '/USDT'  # only fetch for USDT pairs
-# ---------------------------------------
-
-def fetch_ohlcv(symbol, timeframe):
-    try:
-        return exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=DATA_LIMIT)
-    except Exception as e:
-        print(f"❌ Fetch error {symbol} ({timeframe}): {e}")
-        return []
-
-def save_to_csv(symbol, timeframe, df):
-    folder = f"data/historical/{timeframe}"
-    os.makedirs(folder, exist_ok=True)
-    filename = os.path.join(folder, f"{symbol.replace('/', '_')}.csv")
-    df.to_csv(filename, index=False)
-    print(f"📁 Saved CSV: {filename}")
-
-def save_to_json(symbol, timeframe, df):
-    folder = f"data/historical/{timeframe}"
-    os.makedirs(folder, exist_ok=True)
-    filename = os.path.join(folder, f"{symbol.replace('/', '_')}.json")
-    df.to_json(filename, orient="records")
-    print(f"📁 Saved JSON: {filename}")
-
-def collect_data():
-    print(f"📊 Loading market pairs...")
-    symbols = [s for s in exchange.load_markets() if SYMBOL_FILTER in s]
-    print(f"✅ Found {len(symbols)} symbols to fetch.")
+    timeframes = ['15m', '1h', '4h']
+    os.makedirs("data/historical", exist_ok=True)
 
     for symbol in symbols:
-        for tf in TIMEFRAMES:
-            print(f"🔄 Fetching {symbol} ({tf})...")
-            ohlcv = fetch_ohlcv(symbol, tf)
-            if not ohlcv:
-                continue
+        symbol_safe = symbol.replace("/", "_")
+        all_timeframes_data = {}
 
-            df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-            df["timestamp"] = pd.to_datetime(df["timestamp"], unit='ms')
+        for tf in timeframes:
+            try:
+                candles = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
+                all_timeframes_data[tf] = candles
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Fetched {symbol} - {tf}")
+                time.sleep(0.1)  # Prevent rate limit
+            except Exception as e:
+                print(f"[ERROR] {symbol} - {tf}: {e}")
 
-            if OUTPUT_FORMAT == 'csv':
-                save_to_csv(symbol, tf, df)
-            elif OUTPUT_FORMAT == 'json':
-                save_to_json(symbol, tf, df)
-            elif OUTPUT_FORMAT == 'pandas':
-                print(df.head())  # You can return it for backtest
-            else:
-                print("❌ Unknown format!")
+        if all_timeframes_data:
+            with open(f"data/historical/{symbol_safe}.json", "w") as f:
+                json.dump(all_timeframes_data, f)
 
 if __name__ == "__main__":
-    collect_data()
+    fetch_all_ohlcv()
