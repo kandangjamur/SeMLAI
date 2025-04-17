@@ -7,7 +7,6 @@ load_dotenv()
 
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
 bot = Bot(token=TOKEN)
 
 def send_signal(signal):
