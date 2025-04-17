@@ -1,94 +1,91 @@
-import pandas as pd
+
+import os
 import ccxt
 import time
-import os
-from datetime import datetime, timedelta
-from core.indicators import calculate_indicators
+import pandas as pd
+from datetime import datetime
+from core.indicators import calculate_indicators  # Must support multi-timeframe logic
 from model.predictor import predict_trend
 from core.trade_classifier import classify_trade
-from core.whale_detector import whale_check
-from core.news_sentiment import get_sentiment_boost
-from utils.logger import log
 
-def backtest():
-    exchange = ccxt.binance()
-    symbols = [s for s in exchange.load_markets() if '/USDT' in s]
+# Directory to store logs
+os.makedirs("logs", exist_ok=True)
+results_file = "logs/backtest_results.csv"
 
-    result = []
+# Initialize exchange
+exchange = ccxt.binance()
+markets = exchange.load_markets()
+symbols = [s for s in markets if "/USDT" in s and not s.endswith("DOWN/USDT") and not s.endswith("UP/USDT")]
 
-    for symbol in symbols:
-        log(f"📊 Backtesting {symbol}")
+# Define timeframes to test
+timeframes = ["15m", "1h", "4h"]
+
+# Utility to evaluate TP hits
+def evaluate_tp_sl(entry_price, candles, tp1, tp2, tp3, sl, direction):
+    for candle in candles:
+        high, low = candle[2], candle[3]
+        if direction == "LONG":
+            if low <= sl:
+                return "SL"
+            elif high >= tp3:
+                return "TP3"
+            elif high >= tp2:
+                return "TP2"
+            elif high >= tp1:
+                return "TP1"
+        elif direction == "SHORT":
+            if high >= sl:
+                return "SL"
+            elif low <= tp3:
+                return "TP3"
+            elif low <= tp2:
+                return "TP2"
+            elif low <= tp1:
+                return "TP1"
+    return "None"
+
+# Open CSV writer
+with open(results_file, "w") as f:
+    f.write("symbol,timeframe,direction,confidence,result,tp1,tp2,tp3,sl
+")
+
+# Run backtest
+for symbol in symbols:
+    print(f"🔍 Backtesting: {symbol}")
+    for tf in timeframes:
         try:
-            since = exchange.parse8601((datetime.utcnow() - timedelta(days=365)).isoformat())
-            candles = exchange.fetch_ohlcv(symbol, '1h', since=since, limit=500)
+            ohlcv = exchange.fetch_ohlcv(symbol, tf, limit=150)
+            if len(ohlcv) < 100:
+                continue
 
-            for i in range(100, len(candles)):
-                subset = candles[i-100:i]
-                signal = calculate_indicators(symbol, subset)
-                if not signal:
-                    continue
+            signal = calculate_indicators(symbol, ohlcv)
+            if not signal:
+                continue
 
-                sentiment_boost = get_sentiment_boost(symbol)
-                signal['confidence'] += sentiment_boost
+            signal["prediction"] = predict_trend(symbol, ohlcv)
+            signal["trade_type"] = classify_trade(signal)
+            confidence = signal["confidence"]
 
-                if signal['confidence'] < 85:
-                    continue
+            if signal["trade_type"] == "Spot":
+                continue  # Spot disabled
 
-                prediction = predict_trend(symbol, subset)
-                signal['prediction'] = prediction
-                signal['trade_type'] = classify_trade(signal)
+            # Generate TP/SL
+            price = signal["price"]
+            tp1 = round(price * (1.01 if signal["prediction"] == "LONG" else 0.99), 3)
+            tp2 = round(price * (1.03 if signal["prediction"] == "LONG" else 0.97), 3)
+            tp3 = round(price * (1.05 if signal["prediction"] == "LONG" else 0.95), 3)
+            sl = round(price * (0.98 if signal["prediction"] == "LONG" else 1.02), 3)
 
-                # Assume entry = close price of last candle
-                entry = subset[-1][4]
-                direction = prediction
-                tp1 = entry * 1.03 if direction == "LONG" else entry * 0.97
-                tp2 = entry * 1.05 if direction == "LONG" else entry * 0.95
-                tp3 = entry * 1.07 if direction == "LONG" else entry * 0.93
-                sl = entry * 0.97 if direction == "LONG" else entry * 1.03
+            outcome = evaluate_tp_sl(price, ohlcv[-10:], tp1, tp2, tp3, sl, signal["prediction"])
 
-                # Simulate next 10 candles
-                future = candles[i:i+10]
-                hit = "NONE"
-                for f in future:
-                    high = f[2]
-                    low = f[3]
+            with open(results_file, "a") as f:
+                f.write(f"{symbol},{tf},{signal['prediction']},{confidence},{outcome},{tp1},{tp2},{tp3},{sl}
+")
 
-                    if direction == "LONG":
-                        if high >= tp3:
-                            hit = "TP3"; break
-                        elif high >= tp2:
-                            hit = "TP2"; break
-                        elif high >= tp1:
-                            hit = "TP1"; break
-                        elif low <= sl:
-                            hit = "SL"; break
-                    else:
-                        if low <= tp3:
-                            hit = "TP3"; break
-                        elif low <= tp2:
-                            hit = "TP2"; break
-                        elif low <= tp1:
-                            hit = "TP1"; break
-                        elif high >= sl:
-                            hit = "SL"; break
-
-                result.append({
-                    "symbol": symbol,
-                    "direction": direction,
-                    "confidence": signal['confidence'],
-                    "result": hit,
-                    "datetime": datetime.fromtimestamp(subset[-1][0] / 1000).strftime("%Y-%m-%d %H:%M")
-                })
+            time.sleep(0.5)
 
         except Exception as e:
-            log(f"❌ Backtest error on {symbol}: {e}")
+            print(f"⚠️ Error on {symbol}-{tf}: {e}")
             continue
 
-    df = pd.DataFrame(result)
-    os.makedirs("logs", exist_ok=True)
-    df.to_csv("logs/backtest_results.csv", index=False)
-    log("✅ Backtest complete. Results saved to logs/backtest_results.csv")
-
-if __name__ == "__main__":
-    backtest()
-# Placeholder for backtest engine
+print("✅ Backtest Completed: logs/backtest_results.csv")
