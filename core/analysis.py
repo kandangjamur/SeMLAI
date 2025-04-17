@@ -1,4 +1,5 @@
 import pandas as pd
+import ta
 import time
 import ccxt
 from core.indicators import calculate_indicators
