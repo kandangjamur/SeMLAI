@@ -61,4 +61,20 @@ def calculate_indicators(symbol, ohlcv):
         sl = round(price * 0.975, 4)    # -2.5%
 
     # Dynamic Leverage: Scalp gets higher, Normal more stable
-    if trade_type == "Scal_
+    if trade_type == "Scalping":
+        leverage = min(50, max(20, confidence))
+    else:
+        leverage = min(20, max(5, confidence // 5))
+
+    return {
+        "symbol": symbol,
+        "price": price,
+        "confidence": confidence,
+        "trade_type": trade_type,
+        "timestamp": latest["timestamp"],
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3": tp3,
+        "sl": sl,
+        "leverage": leverage
+    }
