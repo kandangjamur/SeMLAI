@@ -16,44 +16,41 @@ def calculate_indicators(symbol, ohlcv):
         return None
 
     latest = df.iloc[-1]
+
     confidence = 0
 
-    # Hedge-fund level logic
     if latest["ema_20"] > latest["ema_50"]:
         confidence += 30
-    if 50 < latest["rsi"] < 75:
+    if latest["rsi"] > 55:
         confidence += 20
     if latest["macd"] > latest["macd_signal"]:
         confidence += 20
-    if latest["volume"] > 1.8 * latest["volume_sma"]:
+    if latest["volume"] > 1.5 * latest["volume_sma"]:
         confidence += 15
-    if latest["atr"] > 0.5:
+    if latest["atr"] > 0:
         confidence += 10
 
-    # Trade Type
+    # Trade Type Logic
     if confidence >= 75:
         trade_type = "Normal"
-    elif confidence >= 60:
-        trade_type = "Scalping"
     else:
-        return None  # skip low confidence
+        trade_type = "Scalping"
 
-    close = latest["close"]
-    tp1 = round(close * 1.015, 3)
-    tp2 = round(close * 1.035, 3)
-    tp3 = round(close * 1.065, 3)
-    sl = round(close * 0.975, 3)
+    price = latest["close"]
+    tp1 = round(price * 1.02, 4)
+    tp2 = round(price * 1.04, 4)
+    tp3 = round(price * 1.06, 4)
+    sl = round(price * 0.97, 4)
 
-    leverage = (
-        0 if trade_type == "Spot" else
-        20 if confidence < 70 else
-        35 if confidence < 85 else
-        50
-    )
+    # Leverage based on confidence
+    if trade_type == "Scalping":
+        leverage = 20 + int((confidence - 60) * 2)
+    else:
+        leverage = 10 + int((confidence - 75) * 2.5)
 
     return {
         "symbol": symbol,
-        "price": close,
+        "price": price,
         "confidence": confidence,
         "trade_type": trade_type,
         "timestamp": latest["timestamp"],
@@ -61,5 +58,5 @@ def calculate_indicators(symbol, ohlcv):
         "tp2": tp2,
         "tp3": tp3,
         "sl": sl,
-        "leverage": leverage
+        "leverage": min(leverage, 50)
     }
