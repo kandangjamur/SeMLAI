@@ -1,50 +1,39 @@
+import os
+import json
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 import joblib
-import os
 
-def train_model():
-    path = "logs/signals_log.csv"
-    if not os.path.exists(path):
-        print("❌ signals_log.csv not found.")
-        return
+def extract_features(data):
+    df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df['return'] = df['close'].pct_change()
+    df['volatility'] = (df['high'] - df['low']) / df['close']
+    df['avg_volume'] = df['volume'].rolling(5).mean()
+    df = df.dropna()
+    return df[["return", "volatility", "avg_volume"]]
 
-    df = pd.read_csv(path)
+def prepare_dataset():
+    path = "data/historical"
+    X, y = [], []
 
-    # Drop rows with missing data
-    df.dropna(inplace=True)
+    for file in os.listdir(path):
+        if file.endswith(".json"):
+            with open(os.path.join(path, file)) as f:
+                data = json.load(f)
+            candles = data.get("15m", [])
+            if len(candles) > 20:
+                features = extract_features(candles)
+                X.extend(features.values)
+                y.extend([1 if row[0] > 0 else 0 for row in features.values])  # 1 = bullish, 0 = bearish
 
-    # Only train on signals that have been closed (TP or SL hit)
-    df = df[df["status"].isin(["TP1", "TP2", "TP3", "SL"])]
+    return pd.DataFrame(X), y
 
-    if df.empty:
-        print("⚠️ No completed signals found to train.")
-        return
-
-    # Convert result into binary (1 = Win, 0 = Loss)
-    df["result"] = df["status"].apply(lambda x: 1 if "TP" in x else 0)
-
-    # Features for training (you can expand this list as needed)
-    features = ["confidence", "price", "tp1", "tp2", "tp3", "sl"]
-    target = "result"
-
-    X = df[features]
-    y = df[target]
-
-    # Train/test split
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    # Train the model
+def train_classifier():
+    X, y = prepare_dataset()
     model = RandomForestClassifier(n_estimators=100, random_state=42)
-    model.fit(X_train, y_train)
-
-    # Save the model
-    os.makedirs("model", exist_ok=True)
-    joblib.dump(model, "model/signal_predictor.pkl")
-
-    acc = model.score(X_test, y_test)
-    print(f"✅ Model trained with accuracy: {acc:.2f}")
+    model.fit(X, y)
+    joblib.dump(model, "model/trend_model.pkl")
+    print("✅ Model trained and saved as trend_model.pkl")
 
 if __name__ == "__main__":
-    train_model()
+    train_classifier()
