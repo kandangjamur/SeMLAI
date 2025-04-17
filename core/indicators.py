@@ -16,12 +16,12 @@ def calculate_indicators(symbol, ohlcv):
         return None
 
     latest = df.iloc[-1]
-
     confidence = 0
 
+    # Confidence scoring
     if latest["ema_20"] > latest["ema_50"]:
-        confidence += 30
-    if latest["rsi"] > 55:
+        confidence += 25
+    if latest["rsi"] > 50:
         confidence += 20
     if latest["macd"] > latest["macd_signal"]:
         confidence += 20
@@ -30,33 +30,27 @@ def calculate_indicators(symbol, ohlcv):
     if latest["atr"] > 0:
         confidence += 10
 
-    # Trade Type Logic
+    # Trade type classification
     if confidence >= 75:
         trade_type = "Normal"
-    else:
+    elif confidence >= 60:
         trade_type = "Scalping"
-
-    price = latest["close"]
-    tp1 = round(price * 1.02, 4)
-    tp2 = round(price * 1.04, 4)
-    tp3 = round(price * 1.06, 4)
-    sl = round(price * 0.97, 4)
-
-    # Leverage based on confidence
-    if trade_type == "Scalping":
-        leverage = 20 + int((confidence - 60) * 2)
     else:
-        leverage = 10 + int((confidence - 75) * 2.5)
+        return None  # Too weak to be considered a signal
 
+    # Placeholder — final prediction is set later by predict_trend()
+    prediction = "LONG"
+
+    # Price & dynamic TP/SL placeholders
+    close = latest["close"]
+    atr = latest["atr"]
+
+    # Return early — TP/SL + leverage will be adjusted after trend is predicted
     return {
         "symbol": symbol,
-        "price": price,
+        "price": close,
         "confidence": confidence,
         "trade_type": trade_type,
         "timestamp": latest["timestamp"],
-        "tp1": tp1,
-        "tp2": tp2,
-        "tp3": tp3,
-        "sl": sl,
-        "leverage": min(leverage, 50)
+        "atr": atr,  # We'll use this later to determine TP/SL dynamically
     }
