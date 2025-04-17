@@ -1,7 +1,7 @@
+import pandas as pd
 import ccxt
 import time
 import os
-import pandas as pd
 from datetime import datetime, timedelta
 from core.indicators import calculate_indicators
 from model.predictor import predict_trend
