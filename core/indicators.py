@@ -2,9 +2,6 @@ import pandas as pd
 import ta
 
 def calculate_indicators(symbol, ohlcv):
-    if len(ohlcv) < 50:
-        return None
-
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
     df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
     df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
@@ -15,27 +12,22 @@ def calculate_indicators(symbol, ohlcv):
     df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
     df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
+    if len(df) < 50:
+        return None
+
     latest = df.iloc[-1]
     confidence = 0
 
-    # EMA crossover
+    # Hedge-fund level logic
     if latest["ema_20"] > latest["ema_50"]:
-        confidence += 25
-
-    # RSI strength
-    if latest["rsi"] > 55:
+        confidence += 30
+    if 50 < latest["rsi"] < 75:
         confidence += 20
-
-    # MACD bullish
     if latest["macd"] > latest["macd_signal"]:
         confidence += 20
-
-    # Volume spike
-    if latest["volume"] > 1.5 * latest["volume_sma"]:
+    if latest["volume"] > 1.8 * latest["volume_sma"]:
         confidence += 15
-
-    # Volatility check
-    if latest["atr"] > 0:
+    if latest["atr"] > 0.5:
         confidence += 10
 
     # Trade Type
@@ -44,31 +36,24 @@ def calculate_indicators(symbol, ohlcv):
     elif confidence >= 60:
         trade_type = "Scalping"
     else:
-        return None  # discard very low confidence
+        return None  # skip low confidence
 
-    price = latest["close"]
+    close = latest["close"]
+    tp1 = round(close * 1.015, 3)
+    tp2 = round(close * 1.035, 3)
+    tp3 = round(close * 1.065, 3)
+    sl = round(close * 0.975, 3)
 
-    # Dynamically adjusted TP & SL
-    if trade_type == "Scalping":
-        tp1 = round(price * 1.005, 4)   # 0.5%
-        tp2 = round(price * 1.01, 4)    # 1%
-        tp3 = round(price * 1.015, 4)   # 1.5%
-        sl = round(price * 0.99, 4)     # -1%
-    else:  # Normal
-        tp1 = round(price * 1.015, 4)   # 1.5%
-        tp2 = round(price * 1.03, 4)    # 3%
-        tp3 = round(price * 1.05, 4)    # 5%
-        sl = round(price * 0.975, 4)    # -2.5%
-
-    # Dynamic Leverage: Scalp gets higher, Normal more stable
-    if trade_type == "Scalping":
-        leverage = min(50, max(20, confidence))
-    else:
-        leverage = min(20, max(5, confidence // 5))
+    leverage = (
+        0 if trade_type == "Spot" else
+        20 if confidence < 70 else
+        35 if confidence < 85 else
+        50
+    )
 
     return {
         "symbol": symbol,
-        "price": price,
+        "price": close,
         "confidence": confidence,
         "trade_type": trade_type,
         "timestamp": latest["timestamp"],
