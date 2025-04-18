@@ -55,9 +55,9 @@ def calculate_indicators(symbol, ohlcv):
 
     base_leverage = 5
     if trade_type == "Scalping":
-        base_leverage += (confidence - 60) * 0.8
+        base_leverage += (confidence - 75) * 0.8
     elif trade_type == "Normal":
-        base_leverage += (confidence - 75) * 1.2
+        base_leverage += (confidence - 85) * 1.2
 
     # Add boost from volatility and volume
     base_leverage += volatility_factor * 30
