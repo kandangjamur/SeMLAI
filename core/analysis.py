@@ -35,11 +35,11 @@ def run_analysis_loop():
                 signal['confidence'] += get_sentiment_boost(symbol)
 
                 # Filter based on type and confidence thresholds
-                if signal['trade_type'] == "Scalping" and signal['confidence'] < 60:
-                    log(f"⏩ Skipped {symbol} (Scalping < 60%)")
+                if signal['trade_type'] == "Scalping" and signal['confidence'] < 70:
+                    log(f"⏩ Skipped {symbol} (Scalping < 70%)")
                     continue
-                elif signal['trade_type'] == "Normal" and signal['confidence'] < 75:
-                    log(f"⏩ Skipped {symbol} (Normal < 75%)")
+                elif signal['trade_type'] == "Normal" and signal['confidence'] < 85:
+                    log(f"⏩ Skipped {symbol} (Normal < 85%)")
                     continue
 
                 # Avoid duplicates within 30 minutes
