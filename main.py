@@ -46,3 +46,10 @@ if __name__ == "__main__":
         app.run(host="0.0.0.0", port=8000)
     except Exception as e:
         log(f"❌ Main Crash: {e}")
+        from threading import Thread
+        
+from report.report_runner import schedule
+
+report_thread = Thread(target=schedule)
+report_thread.start()
+
