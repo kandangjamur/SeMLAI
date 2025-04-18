@@ -3,8 +3,10 @@ import ta
 
 def calculate_indicators(symbol, ohlcv):
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    
+    if len(df) < 50:
+        return None
 
-    # Basic indicators
     df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
     df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
     df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
@@ -14,65 +16,65 @@ def calculate_indicators(symbol, ohlcv):
     df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
     df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
-    # Check data sufficiency
-    if len(df) < 50 or df.iloc[-1].isnull().any():
-        return None
-
     latest = df.iloc[-1]
+
     confidence = 0
 
-    # Indicator scoring
+    # === Hedge-fund level Indicator Checks ===
     if latest["ema_20"] > latest["ema_50"]:
-        confidence += 25
-
-    if latest["rsi"] > 55:
-        confidence += 20
-    elif latest["rsi"] < 45:
-        confidence -= 10  # bearish RSI
-
+        confidence += 25  # EMA crossover
+    if latest["rsi"] > 50:
+        confidence += 20  # RSI bullish
     if latest["macd"] > latest["macd_signal"]:
-        confidence += 20
-
+        confidence += 20  # MACD crossover
     if latest["volume"] > 1.5 * latest["volume_sma"]:
-        confidence += 15
-
+        confidence += 15  # Volume spike
     if latest["atr"] > 0:
-        confidence += 10
+        confidence += 10  # Volatility present
 
-    # Trade classification
+    # === Determine Trade Type ===
     if confidence >= 75:
         trade_type = "Normal"
     elif confidence >= 60:
         trade_type = "Scalping"
     else:
-        return None  # discard weak signals
+        return None  # Ignore weak setups
 
-    close = latest["close"]
+    # === TP / SL ===
+    price = latest["close"]
     atr = latest["atr"]
+    tp1 = round(price + (atr * 1.2), 3)
+    tp2 = round(price + (atr * 2.2), 3)
+    tp3 = round(price + (atr * 3.2), 3)
+    sl = round(price - (atr * 1.1), 3)
 
-    # Dynamic TP/SL using ATR
-    tp1 = round(close + 1.5 * atr, 3)
-    tp2 = round(close + 3 * atr, 3)
-    tp3 = round(close + 5 * atr, 3)
-    sl = round(close - 1.8 * atr, 3)
+    # === Direction will be added later in analysis ===
+    # === Dynamic Leverage ===
+    volatility_factor = atr / price if price > 0 else 0
+    volume_factor = latest["volume"] / latest["volume_sma"] if latest["volume_sma"] > 0 else 0
 
-    # Short logic (optional, if trend prediction is Short)
-    # You'll flip these in analysis.py if direction is SHORT
+    base_leverage = 5
+    if trade_type == "Scalping":
+        base_leverage += (confidence - 60) * 0.8
+    elif trade_type == "Normal":
+        base_leverage += (confidence - 75) * 1.2
 
-    signal = {
+    # Add boost from volatility and volume
+    base_leverage += volatility_factor * 30
+    base_leverage += volume_factor * 2
+
+    leverage = min(round(base_leverage), 50)
+
+    return {
         "symbol": symbol,
-        "price": close,
+        "price": price,
         "confidence": round(confidence, 2),
         "trade_type": trade_type,
         "timestamp": latest["timestamp"],
         "atr": atr,
-        "tp1": tp1,
-        "tp2": tp2,
-        "tp3": tp3,
-        "sl": sl
+        "tp1": round(tp1, 3),
+        "tp2": round(tp2, 3),
+        "tp3": round(tp3, 3),
+        "sl": round(sl, 3),
+        "leverage": f"{leverage}x"
     }
-
-    # Debug print for dev logs
-    print(f"[DEBUG] {symbol} | Confidence: {confidence}% | Type: {trade_type}")
-
-    return signal
