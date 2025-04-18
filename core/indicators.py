@@ -33,9 +33,9 @@ def calculate_indicators(symbol, ohlcv):
         confidence += 10  # Volatility present
 
     # === Determine Trade Type ===
-    if confidence >= 85:
+    if confidence >= 90:
         trade_type = "Normal"
-    elif confidence >= 70:
+    elif confidence >= 80:
         trade_type = "Scalping"
     else:
         return None  # Ignore weak setups
@@ -55,9 +55,9 @@ def calculate_indicators(symbol, ohlcv):
 
     base_leverage = 5
     if trade_type == "Scalping":
-        base_leverage += (confidence - 70) * 0.8
+        base_leverage += (confidence - 80) * 0.8
     elif trade_type == "Normal":
-        base_leverage += (confidence - 85) * 1.2
+        base_leverage += (confidence - 90) * 1.2
 
     # Add boost from volatility and volume
     base_leverage += volatility_factor * 30
