@@ -1,49 +1,46 @@
 import pandas as pd
 import ccxt
-import time
+from datetime import datetime
 from utils.logger import log
 
 def update_signal_status():
     try:
-        exchange = ccxt.binance()
         df = pd.read_csv("logs/signals_log.csv")
-        df['status'] = df.get('status', 'OPEN')
+        exchange = ccxt.binance()
 
-        for idx, row in df.iterrows():
-            if row['status'] != 'OPEN':
+        for i in range(len(df)):
+            row = df.iloc[i]
+            if row["status"] != "OPEN":
                 continue
 
-            symbol = row['symbol']
-            market = symbol.replace("/", "")
-            price = exchange.fetch_ticker(symbol)['last']
+            symbol = row["symbol"]
+            market_price = exchange.fetch_ticker(symbol)["last"]
 
-            if row['prediction'] == "LONG":
-                if price >= row['tp3']:
-                    status = "HIT TP3"
-                elif price >= row['tp2']:
-                    status = "HIT TP2"
-                elif price >= row['tp1']:
-                    status = "HIT TP1"
-                elif price <= row['sl']:
-                    status = "SL HIT"
-                else:
-                    status = "OPEN"
-            else:  # SHORT
-                if price <= row['tp3']:
-                    status = "HIT TP3"
-                elif price <= row['tp2']:
-                    status = "HIT TP2"
-                elif price <= row['tp1']:
-                    status = "HIT TP1"
-                elif price >= row['sl']:
-                    status = "SL HIT"
-                else:
-                    status = "OPEN"
+            hit = ""
+            if row["prediction"] == "LONG":
+                if market_price >= row["tp3"]:
+                    hit = "TP3"
+                elif market_price >= row["tp2"]:
+                    hit = "TP2"
+                elif market_price >= row["tp1"]:
+                    hit = "TP1"
+                elif market_price <= row["sl"]:
+                    hit = "SL"
+            elif row["prediction"] == "SHORT":
+                if market_price <= row["tp3"]:
+                    hit = "TP3"
+                elif market_price <= row["tp2"]:
+                    hit = "TP2"
+                elif market_price <= row["tp1"]:
+                    hit = "TP1"
+                elif market_price >= row["sl"]:
+                    hit = "SL"
 
-            df.at[idx, 'status'] = status
+            if hit:
+                df.at[i, "status"] = hit
+                df.at[i, "closed_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                log(f"🔄 {symbol} → {hit} hit!")
 
         df.to_csv("logs/signals_log.csv", index=False)
-        log("✅ TP/SL tracker updated.")
-
     except Exception as e:
-        log(f"❌ TP/SL Tracking Error: {e}")
+        log(f"❌ Tracker Error: {e}")
