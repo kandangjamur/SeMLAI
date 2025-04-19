@@ -1,61 +1,38 @@
-import csv
-from datetime import datetime
-from telebot.bot import bot, CHAT_ID
+import pandas as pd
+from telegram import Bot, ParseMode
+from dotenv import load_dotenv
 import os
+from utils.logger import log
+
+load_dotenv()
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+bot = Bot(token=TOKEN)
 
 def generate_daily_summary():
-    log_file = "logs/signals_log.csv"
-    if not os.path.exists(log_file):
-        return
+    try:
+        df = pd.read_csv("logs/signals_log.csv")
+        today = pd.Timestamp.now().normalize()
 
-    total = 0
-    tp1 = tp2 = tp3 = sl = 0
-    spot = normal = scalping = 0
+        today_signals = df[pd.to_datetime(df["timestamp"], unit='s').dt.normalize() == today]
 
-    today = datetime.now().strftime("%Y-%m-%d")
+        total = len(today_signals)
+        tp1 = len(today_signals[today_signals["status"] == "HIT TP1"])
+        tp2 = len(today_signals[today_signals["status"] == "HIT TP2"])
+        tp3 = len(today_signals[today_signals["status"] == "HIT TP3"])
+        sl = len(today_signals[today_signals["status"] == "SL HIT"])
 
-    with open(log_file, "r") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if not row["timestamp"].startswith(today):
-                continue
-            total += 1
-            status = row["status"]
-            ttype = row["trade_type"]
+        msg = (
+            f"📊 *Daily Signal Report*\n\n"
+            f"📅 Date: `{today.date()}`\n"
+            f"📈 Total Signals: *{total}*\n"
+            f"✅ TP1 Hit: *{tp1}*\n"
+            f"✅ TP2 Hit: *{tp2}*\n"
+            f"🏆 TP3 Hit: *{tp3}*\n"
+            f"❌ SL Hit: *{sl}*\n"
+        )
+        bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode=ParseMode.MARKDOWN)
+        log("📤 Daily report sent to Telegram.")
 
-            if status == "TP1":
-                tp1 += 1
-            elif status == "TP2":
-                tp2 += 1
-            elif status == "TP3":
-                tp3 += 1
-            elif status == "SL":
-                sl += 1
-
-            if ttype == "Spot":
-                spot += 1
-            elif ttype == "Normal":
-                normal += 1
-            elif ttype == "Scalping":
-                scalping += 1
-
-    msg = f"""
-📊 Daily Sniper Summary ({today})
-
-Total Signals Sent: {total}
-
-🎯 Accuracy Breakdown:
-- TP1 Hit: {tp1}
-- TP2 Hit: {tp2}
-- TP3 Hit: {tp3}
-- SL Hit: {sl}
-
-🔍 Signal Type Stats:
-- Scalping: {scalping}
-- Normal: {normal}
-- Spot: {spot}
-
-✅ Overall Success Rate: {round(((tp1 + tp2 + tp3) / total)*100, 2) if total else 0}%
-"""
-
-    bot.send_message(chat_id=CHAT_ID, text=msg)
+    except Exception as e:
+        log(f"❌ Daily Report Error: {e}")
