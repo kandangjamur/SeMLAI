@@ -1,80 +1,59 @@
 import pandas as pd
 import ta
 
-def calculate_indicators(symbol, ohlcv):
-    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    
-    if len(df) < 50:
+def calculate_indicators(symbol, ohlcv_15m, ohlcv_1h):
+    df_15m = pd.DataFrame(ohlcv_15m, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df_1h = pd.DataFrame(ohlcv_1h, columns=["timestamp", "open", "high", "low", "close", "volume"])
+
+    for df in [df_15m, df_1h]:
+        df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
+        df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
+        df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+        macd = ta.trend.MACD(df["close"])
+        df["macd"] = macd.macd()
+        df["macd_signal"] = macd.macd_signal()
+        df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
+        df["volume_sma"] = df["volume"].rolling(window=20).mean()
+
+    if len(df_15m) < 50 or len(df_1h) < 50:
         return None
 
-    df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
-    df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
-    df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
-    macd = ta.trend.MACD(df["close"])
-    df["macd"] = macd.macd()
-    df["macd_signal"] = macd.macd_signal()
-    df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
-    df["volume_sma"] = df["volume"].rolling(window=20).mean()
-
-    latest = df.iloc[-1]
+    l_15m = df_15m.iloc[-1]
+    l_1h = df_1h.iloc[-1]
 
     confidence = 0
 
-    # === Hedge-fund level Indicator Checks ===
-    if latest["ema_20"] > latest["ema_50"]:
-        confidence += 25  # EMA crossover
-    if latest["rsi"] > 50:
-        confidence += 20  # RSI bullish
-    if latest["macd"] > latest["macd_signal"]:
-        confidence += 20  # MACD crossover
-    if latest["volume"] > 1.5 * latest["volume_sma"]:
-        confidence += 15  # Volume spike
-    if latest["atr"] > 0:
-        confidence += 10  # Volatility present
+    # === Weighted confidence scoring ===
+    if l_15m["ema_20"] > l_15m["ema_50"] and l_1h["ema_20"] > l_1h["ema_50"]:
+        confidence += 25
 
-    # === Determine Trade Type ===
-    if confidence >= 90:
-        trade_type = "Normal"
-    elif confidence >= 80:
-        trade_type = "Scalping"
-    else:
-        return None  # Ignore weak setups
+    if l_15m["rsi"] > 50 and l_1h["rsi"] > 55:
+        confidence += 20
 
-    # === TP / SL ===
-    price = latest["close"]
-    atr = latest["atr"]
-    tp1 = round(price + (atr * 1.2), 3)
-    tp2 = round(price + (atr * 2.2), 3)
-    tp3 = round(price + (atr * 3.2), 3)
-    sl = round(price - (atr * 1.1), 3)
+    if l_15m["macd"] > l_15m["macd_signal"] and l_1h["macd"] > l_1h["macd_signal"]:
+        confidence += 20
 
-    # === Direction will be added later in analysis ===
-    # === Dynamic Leverage ===
-    volatility_factor = atr / price if price > 0 else 0
-    volume_factor = latest["volume"] / latest["volume_sma"] if latest["volume_sma"] > 0 else 0
+    if l_15m["volume"] > 1.5 * l_15m["volume_sma"]:
+        confidence += 15
 
-    base_leverage = 5
-    if trade_type == "Scalping":
-        base_leverage += (confidence - 80) * 0.8
-    elif trade_type == "Normal":
-        base_leverage += (confidence - 90) * 1.2
+    if l_15m["atr"] > 0 and l_1h["atr"] > 0:
+        confidence += 10
 
-    # Add boost from volatility and volume
-    base_leverage += volatility_factor * 30
-    base_leverage += volume_factor * 2
+    trade_type = "Normal" if confidence >= 75 else "Scalping"
+    price = l_15m["close"]
+    atr = l_15m["atr"]
 
-    leverage = min(round(base_leverage), 50)
+    # Dynamic leverage logic
+    leverage = 20 if trade_type == "Scalping" else 35
+    if atr > 1.5:
+        leverage = min(50, leverage + 5)
 
     return {
         "symbol": symbol,
         "price": price,
-        "confidence": round(confidence, 2),
+        "confidence": confidence,
         "trade_type": trade_type,
-        "timestamp": latest["timestamp"],
+        "timestamp": l_15m["timestamp"],
         "atr": atr,
-        "tp1": round(tp1, 3),
-        "tp2": round(tp2, 3),
-        "tp3": round(tp3, 3),
-        "sl": round(sl, 3),
-        "leverage": f"{leverage}x"
+        "leverage": leverage
     }
