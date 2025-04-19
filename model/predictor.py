@@ -1,16 +1,14 @@
-import pandas as pd
-
 def predict_trend(symbol, ohlcv):
-    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    last = df.iloc[-1]
-    prev = df.iloc[-2]
+    if not ohlcv or len(ohlcv) < 10:
+        return "UNKNOWN"
 
-    bullish = last['close'] > last['open']
-    higher_high = last['high'] > prev['high']
-    higher_low = last['low'] > prev['low']
+    close_prices = [c[4] for c in ohlcv]
+    last = close_prices[-1]
+    prev = close_prices[-2]
 
-    if bullish and higher_high and higher_low:
+    if last > prev:
         return "LONG"
-    elif not bullish and last['low'] < prev['low']:
+    elif last < prev:
         return "SHORT"
-    return "SIDEWAYS"
+    else:
+        return "LONG"  # Assume momentum continues
