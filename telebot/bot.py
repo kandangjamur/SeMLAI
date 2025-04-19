@@ -1,13 +1,18 @@
 import os
 from dotenv import load_dotenv
-from telegram import Bot, ParseMode
+from telegram import Bot, ParseMode, Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
 from utils.logger import log
 
+# Load .env
 load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+# Bot init
 bot = Bot(token=TOKEN)
+updater = Updater(token=TOKEN, use_context=True)
+dispatcher = updater.dispatcher
 
 def send_signal(signal):
     try:
@@ -34,3 +39,53 @@ def send_signal(signal):
         log(f"📨 Telegram sent: {signal['symbol']}")
     except Exception as e:
         log(f"❌ Telegram Send Error: {e}")
+
+# 📩 Command: /manualreport
+def manual_report(update: Update, context: CallbackContext):
+    try:
+        from telebot.report_generator import generate_daily_summary
+        generate_daily_summary()
+        update.message.reply_text("📊 Manual daily report generated.")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {e}")
+        log(f"❌ Manual report error: {e}")
+
+# 📈 Command: /backtest
+def manual_backtest(update: Update, context: CallbackContext):
+    try:
+        from core.backtester import run_backtest_report
+        run_backtest_report()
+        update.message.reply_text("📈 Backtest report triggered.")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {e}")
+        log(f"❌ Manual backtest error: {e}")
+
+# 📊 Command: /status
+def status_check(update: Update, context: CallbackContext):
+    try:
+        update.message.reply_text("✅ Crypto Sniper Bot is running!")
+    except Exception as e:
+        log(f"❌ Status error: {e}")
+
+# 🔄 Command: /manualscan
+def manual_scan(update: Update, context: CallbackContext):
+    try:
+        from core.analysis import run_analysis_once
+        run_analysis_once()
+        update.message.reply_text("🔍 Manual market scan triggered.")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {e}")
+        log(f"❌ Manual scan error: {e}")
+
+# 🧠 Init Commands
+def start_telegram_bot():
+    try:
+        dispatcher.add_handler(CommandHandler("manualreport", manual_report))
+        dispatcher.add_handler(CommandHandler("backtest", manual_backtest))
+        dispatcher.add_handler(CommandHandler("status", status_check))
+        dispatcher.add_handler(CommandHandler("manualscan", manual_scan))
+
+        updater.start_polling()
+        log("✅ Telegram bot is active (send_signal & commands ready)")
+    except Exception as e:
+        log(f"❌ Telegram Bot Init Error: {e}")
