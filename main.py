@@ -1,7 +1,7 @@
 import pandas as pd
 from flask import Flask
 from threading import Thread
-from telebot.bot import send_signal
+from telebot.bot import start_telegram_bot
 from core.analysis import run_analysis_loop
 from core.news_sentiment import start_sentiment_stream
 from telebot.report_generator import generate_daily_summary
@@ -36,6 +36,7 @@ def heartbeat():
 if __name__ == "__main__":
     log("🚀 Starting Crypto Sniper...")
     try:
+        Thread(target=start_telegram_bot).start()
         Thread(target=run_analysis_loop).start()
         Thread(target=start_sentiment_stream).start()
         Thread(target=daily_report_loop).start()
