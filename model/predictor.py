@@ -1,15 +1,20 @@
 def predict_trend(symbol, ohlcv):
-    closes = [c[4] for c in ohlcv]
-    if len(closes) < 50:
-        return "UNKNOWN"
+    try:
+        import pandas as pd
+        import ta
 
-    last_close = closes[-1]
-    prev_close = closes[-2]
-    trend_strength = last_close - prev_close
+        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+        macd = ta.trend.MACD(df["close"])
+        df["macd"] = macd.macd()
+        df["macd_signal"] = macd.macd_signal()
 
-    if trend_strength > 0:
+        last = df.iloc[-1]
+        if last["rsi"] > 50 and last["macd"] > last["macd_signal"]:
+            return "LONG"
+        elif last["rsi"] < 50 and last["macd"] < last["macd_signal"]:
+            return "SHORT"
+        else:
+            return "LONG"  # default fallback
+    except Exception as e:
         return "LONG"
-    elif trend_strength < 0:
-        return "SHORT"
-    else:
-        return "UNKNOWN"
