@@ -1,63 +1,54 @@
 import ccxt
 import pandas as pd
-import time
 from core.indicators import calculate_indicators
 from model.predictor import predict_trend
+from datetime import datetime
+from utils.logger import log
+import time
 
-def run_backtest(timeframes=["15m", "1h", "4h"]):
+def run_backtest():
     exchange = ccxt.binance()
-    pairs = [s for s in exchange.load_markets() if "/USDT" in s and ":USDT" not in s]
+    markets = exchange.load_markets()
+    usdt_pairs = [s for s in markets if "/USDT" in s]
 
-    results = []
+    result_logs = []
 
-    for symbol in pairs:
-        print(f"🔁 Backtesting: {symbol}")
-        for tf in timeframes:
-            try:
-                ohlcv = exchange.fetch_ohlcv(symbol, tf, limit=200)
-                for i in range(100, len(ohlcv)):
-                    slice = ohlcv[i - 100:i]
-                    signal = calculate_indicators(symbol, slice)
-                    if not signal or signal["confidence"] < 60:
-                        continue
+    for symbol in usdt_pairs:
+        try:
+            log(f"📊 Backtesting: {symbol}")
+            df = exchange.fetch_ohlcv(symbol, '1h', limit=500)
+            win_count = 0
+            total_signals = 0
 
-                    signal["prediction"] = predict_trend(symbol, slice)
-                    entry = signal["price"]
+            for i in range(50, len(df) - 3):
+                candles = df[i-50:i]
+                signal = calculate_indicators(symbol, candles)
+                if not signal or signal['confidence'] < 60:
+                    continue
 
-                    if signal["prediction"] == "LONG":
-                        tp = entry * 1.03
-                        sl = entry * 0.98
-                        direction = "LONG"
-                    else:
-                        tp = entry * 0.97
-                        sl = entry * 1.02
-                        direction = "SHORT"
+                signal['prediction'] = predict_trend(symbol, candles)
+                entry = signal['price']
+                tp1 = entry * (1.01 if signal['prediction'] == "LONG" else 0.99)
+                sl = entry * (0.98 if signal['prediction'] == "LONG" else 1.02)
+                next_candles = df[i+1:i+4]
+                prices = [c[4] for c in next_candles]
 
-                    price_range = [c[4] for c in ohlcv[i:i+5]]  # next 5 candles
+                if signal['prediction'] == "LONG" and any(p >= tp1 for p in prices):
+                    win_count += 1
+                elif signal['prediction'] == "SHORT" and any(p <= tp1 for p in prices):
+                    win_count += 1
 
-                    result = "LOSS"
-                    for price in price_range:
-                        if direction == "LONG" and price >= tp:
-                            result = "WIN"
-                            break
-                        elif direction == "SHORT" and price <= tp:
-                            result = "WIN"
-                            break
-                        elif (direction == "LONG" and price <= sl) or (direction == "SHORT" and price >= sl):
-                            break
+                total_signals += 1
 
-                    results.append({
-                        "symbol": symbol,
-                        "timeframe": tf,
-                        "confidence": signal["confidence"],
-                        "result": result,
-                        "direction": direction
-                    })
+            if total_signals > 0:
+                winrate = round((win_count / total_signals) * 100, 2)
+                result_logs.append(f"{symbol}: {winrate}% ({win_count}/{total_signals})")
 
-            except Exception as e:
-                print(f"⚠️ Error testing {symbol} @ {tf}: {e}")
-                continue
+        except Exception as e:
+            log(f"⚠️ Backtest error: {e}")
+            continue
 
-    df = pd.DataFrame(results)
-    df.to_csv("logs/backtest_results.csv", index=False)
-    print("✅ Backtest complete. Results saved.")
+    with open("logs/backtest_results.txt", "w") as f:
+        f.write("\n".join(result_logs))
+
+    log("✅ Backtest complete.")
