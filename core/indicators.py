@@ -18,25 +18,39 @@ def calculate_indicators(symbol, ohlcv):
     latest = df.iloc[-1]
     confidence = 0
 
-    if latest["ema_20"] > latest["ema_50"]:
-        confidence += 20
-    if latest["rsi"] > 55:
-        confidence += 20
-    if latest["macd"] > latest["macd_signal"]:
-        confidence += 20
-    if latest["volume"] > 1.5 * latest["volume_sma"]:
-        confidence += 15
-    if latest["atr"] > 0:
-        confidence += 10
+    if latest["ema_20"] > latest["ema_50"]: confidence += 20
+    if latest["rsi"] > 55: confidence += 15
+    if latest["macd"] > latest["macd_signal"]: confidence += 15
+    if latest["volume"] > 1.5 * latest["volume_sma"]: confidence += 15
+    if latest["atr"] > 0: confidence += 10
 
-    trade_type = "Scalping" if confidence < 75 else "Normal"
-    leverage = round(min(50, max(2, latest["atr"] * 100)), 1)
+    price = latest["close"]
+    atr = latest["atr"]
+
+    tp1 = round(price + atr * 1.5, 3)
+    tp2 = round(price + atr * 3, 3)
+    tp3 = round(price + atr * 5, 3)
+    sl = round(price - atr * 1.5, 3)
+
+    if confidence >= 90:
+        trade_type = "Normal"
+    elif confidence >= 80:
+        trade_type = "Scalping"
+    else:
+        return None  # filter weak signals
+
+    leverage = min(max(int(confidence / 2), 3), 50)
+
     return {
         "symbol": symbol,
-        "price": latest["close"],
+        "price": price,
         "confidence": confidence,
         "trade_type": trade_type,
         "timestamp": latest["timestamp"],
-        "atr": latest["atr"],
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3": tp3,
+        "sl": sl,
+        "atr": atr,
         "leverage": leverage
     }
