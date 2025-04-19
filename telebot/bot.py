@@ -14,6 +14,7 @@ bot = Bot(token=TOKEN)
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
+# ✅ Signal Sender
 def send_signal(signal):
     try:
         leverage = signal.get("leverage", "-")
@@ -40,7 +41,8 @@ def send_signal(signal):
     except Exception as e:
         log(f"❌ Telegram Send Error: {e}")
 
-# 📩 Command: /manualreport
+# ✅ Commands
+
 def manual_report(update: Update, context: CallbackContext):
     try:
         from telebot.report_generator import generate_daily_summary
@@ -50,7 +52,6 @@ def manual_report(update: Update, context: CallbackContext):
         update.message.reply_text(f"❌ Error: {e}")
         log(f"❌ Manual report error: {e}")
 
-# 📈 Command: /backtest
 def manual_backtest(update: Update, context: CallbackContext):
     try:
         from core.backtester import run_backtest_report
@@ -60,14 +61,12 @@ def manual_backtest(update: Update, context: CallbackContext):
         update.message.reply_text(f"❌ Error: {e}")
         log(f"❌ Manual backtest error: {e}")
 
-# 📊 Command: /status
 def status_check(update: Update, context: CallbackContext):
     try:
         update.message.reply_text("✅ Crypto Sniper Bot is running!")
     except Exception as e:
         log(f"❌ Status error: {e}")
 
-# 🔄 Command: /manualscan
 def manual_scan(update: Update, context: CallbackContext):
     try:
         from core.analysis import run_analysis_once
@@ -77,14 +76,13 @@ def manual_scan(update: Update, context: CallbackContext):
         update.message.reply_text(f"❌ Error: {e}")
         log(f"❌ Manual scan error: {e}")
 
-# 🧠 Init Commands
+# ✅ This function must exist and be top-level (important)
 def start_telegram_bot():
     try:
         dispatcher.add_handler(CommandHandler("manualreport", manual_report))
         dispatcher.add_handler(CommandHandler("backtest", manual_backtest))
         dispatcher.add_handler(CommandHandler("status", status_check))
         dispatcher.add_handler(CommandHandler("manualscan", manual_scan))
-
         updater.start_polling()
         log("✅ Telegram bot is active (send_signal & commands ready)")
     except Exception as e:
