@@ -17,43 +17,53 @@ def send_signal(signal):
         msg = (
             f"📊 *Crypto Sniper Signal*\n"
             f"*{signal['symbol']}*\n\n"
-            f"🔁 Direction: `{signal['prediction']}`\n"
-            f"📈 Confidence: `{signal['confidence']}%`\n"
-            f"💼 Type: `{signal['trade_type']}` | Leverage: `{signal['leverage']}x`\n"
-            f"💰 Price: `{signal['price']}`\n\n"
+            f"📈 Direction: `{signal['prediction']}`\n"
+            f"🔥 Confidence: `{signal['confidence']}%`\n"
+            f"🎯 Type: `{signal['trade_type']}`\n"
+            f"⚡ Leverage: `{signal['leverage']}x`\n"
+            f"💰 Entry: `{signal['price']}`\n\n"
             f"🎯 TP1: `{signal['tp1']}`\n"
             f"🎯 TP2: `{signal['tp2']}`\n"
             f"🎯 TP3: `{signal['tp3']}`\n"
-            f"🛡 SL: `{signal['sl']}`\n"
-            f"📉 Trailing SL: `{signal.get('trailing_sl', '-')}`"
+            f"🛡 SL: `{signal['sl']}`"
         )
         bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode=ParseMode.MARKDOWN)
-        log(f"📨 Sent to Telegram: {signal['symbol']}")
+        log(f"📨 Signal sent: {signal['symbol']}")
     except Exception as e:
-        log(f"❌ Telegram Error: {e}")
+        log(f"❌ Telegram Send Error: {e}")
 
 def manual_report(update: Update, context: CallbackContext):
     from telebot.report_generator import generate_daily_summary
-    generate_daily_summary()
-    update.message.reply_text("📊 Manual report sent.")
+    try:
+        generate_daily_summary()
+        update.message.reply_text("📊 Daily report generated.")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {e}")
 
 def manual_backtest(update: Update, context: CallbackContext):
     from core.backtester import run_backtest_report
-    run_backtest_report()
-    update.message.reply_text("📈 Backtest started.")
+    try:
+        run_backtest_report()
+        update.message.reply_text("📈 Backtest completed.")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {e}")
+
+def status(update: Update, context: CallbackContext):
+    update.message.reply_text("✅ Crypto Sniper is running.")
 
 def manual_scan(update: Update, context: CallbackContext):
     from core.analysis import run_analysis_once
-    run_analysis_once()
-    update.message.reply_text("🔍 Manual scan started.")
-
-def status(update: Update, context: CallbackContext):
-    update.message.reply_text("✅ Crypto Sniper is running!")
+    try:
+        run_analysis_once()
+        update.message.reply_text("🔁 Manual market scan started.")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {e}")
 
 def start_telegram_bot():
     dispatcher.add_handler(CommandHandler("manualreport", manual_report))
     dispatcher.add_handler(CommandHandler("backtest", manual_backtest))
-    dispatcher.add_handler(CommandHandler("manualscan", manual_scan))
     dispatcher.add_handler(CommandHandler("status", status))
+    dispatcher.add_handler(CommandHandler("manualscan", manual_scan))
+
     updater.start_polling()
-    log("✅ Telegram bot started")
+    log("✅ Telegram bot ready with all commands.")
