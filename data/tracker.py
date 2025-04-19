@@ -1,74 +1,49 @@
-import csv
-import os
+import pandas as pd
 import ccxt
-import time
+import os
 from datetime import datetime
 from utils.logger import log
 
 def update_signal_status():
-    path = "logs/signals_log.csv"
-    if not os.path.exists(path):
-        log("❌ Log file not found.")
-        return
+    try:
+        if not os.path.exists("logs/signals_log.csv"):
+            log("⚠️ No log file to update.")
+            return
 
-    exchange = ccxt.binance()
-    updated_rows = []
+        df = pd.read_csv("logs/signals_log.csv")
+        if "status" not in df.columns:
+            df["status"] = "PENDING"
 
-    with open(path, "r") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
+        exchange = ccxt.binance()
+        for idx, row in df.iterrows():
+            if row["status"] != "PENDING":
+                continue
+            symbol = row["symbol"]
+            try:
+                ticker = exchange.fetch_ticker(symbol)
+                current_price = ticker["last"]
+                if row["prediction"] == "LONG":
+                    if current_price >= row["tp3"]:
+                        df.at[idx, "status"] = "TP3"
+                    elif current_price >= row["tp2"]:
+                        df.at[idx, "status"] = "TP2"
+                    elif current_price >= row["tp1"]:
+                        df.at[idx, "status"] = "TP1"
+                    elif current_price <= row["sl"]:
+                        df.at[idx, "status"] = "SL"
+                else:
+                    if current_price <= row["tp3"]:
+                        df.at[idx, "status"] = "TP3"
+                    elif current_price <= row["tp2"]:
+                        df.at[idx, "status"] = "TP2"
+                    elif current_price <= row["tp1"]:
+                        df.at[idx, "status"] = "TP1"
+                    elif current_price >= row["sl"]:
+                        df.at[idx, "status"] = "SL"
+            except Exception as e:
+                log(f"🔁 Error fetching {symbol} price: {e}")
 
-    for row in rows:
-        if row["status"] != "OPEN":
-            updated_rows.append(row)
-            continue
-
-        symbol = row["symbol"].replace("USDT/", "") + "/USDT"
-        try:
-            ticker = exchange.fetch_ticker(symbol)
-            price = ticker["last"]
-        except:
-            log(f"❌ Could not fetch price for {symbol}")
-            updated_rows.append(row)
-            continue
-
-        tp1 = float(row["tp1"])
-        tp2 = float(row["tp2"])
-        tp3 = float(row["tp3"])
-        sl = float(row["sl"])
-        direction = row["direction"]
-        status = row["status"]
-
-        if direction == "LONG":
-            if price >= tp3:
-                status = "TP3"
-            elif price >= tp2:
-                status = "TP2"
-            elif price >= tp1:
-                status = "TP1"
-            elif price <= sl:
-                status = "SL"
-        elif direction == "SHORT":
-            if price <= tp3:
-                status = "TP3"
-            elif price <= tp2:
-                status = "TP2"
-            elif price <= tp1:
-                status = "TP1"
-            elif price >= sl:
-                status = "SL"
-
-        row["status"] = status
-        updated_rows.append(row)
-        log(f"[TRACKER] {symbol} → {status}")
-
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
-        writer.writeheader()
-        writer.writerows(updated_rows)
-
-if __name__ == "__main__":
-    while True:
-        log(f"🕵️ Checking TP/SL status... {datetime.now()}")
-        update_signal_status()
-        time.sleep(600)
+        df.to_csv("logs/signals_log.csv", index=False)
+        log("📈 Signal status updated.")
+    except Exception as e:
+        log(f"❌ Tracker error: {e}")
