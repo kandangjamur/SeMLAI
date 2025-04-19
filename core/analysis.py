@@ -13,7 +13,8 @@ def run_analysis_loop():
     log("📊 Starting Market Scan")
     exchange = ccxt.binance()
     markets = exchange.load_markets()
-    symbols = [s for s in markets if "/USDT" in s]
+    symbols = [s for s in markets if "/USDT" in s and ":" not in s]
+
     log(f"🔢 Total USDT Pairs Loaded: {len(symbols)}")
 
     while True:
@@ -52,21 +53,23 @@ def run_analysis_loop():
 
                 try:
                     signal['prediction'] = predict_trend(symbol, ohlcv)
-
-                    # Dynamic TP/SL based on volatility
                     price = signal['price']
-                    atr = signal.get('atr', 0.01)
+                    atr = signal['atr']
 
+                    # Direction-aware TP/SL
                     if signal['prediction'] == "LONG":
-                        signal['tp1'] = round(price + atr * 1.5, 4)
-                        signal['tp2'] = round(price + atr * 2.5, 4)
-                        signal['tp3'] = round(price + atr * 4, 4)
-                        signal['sl'] = round(price - atr * 2, 4)
+                        signal['tp1'] = round(price + atr * 1.2, 3)
+                        signal['tp2'] = round(price + atr * 2, 3)
+                        signal['tp3'] = round(price + atr * 3.5, 3)
+                        signal['sl'] = round(price - atr * 1.2, 3)
+                    elif signal['prediction'] == "SHORT":
+                        signal['tp1'] = round(price - atr * 1.2, 3)
+                        signal['tp2'] = round(price - atr * 2, 3)
+                        signal['tp3'] = round(price - atr * 3.5, 3)
+                        signal['sl'] = round(price + atr * 1.2, 3)
                     else:
-                        signal['tp1'] = round(price - atr * 1.5, 4)
-                        signal['tp2'] = round(price - atr * 2.5, 4)
-                        signal['tp3'] = round(price - atr * 4, 4)
-                        signal['sl'] = round(price + atr * 2, 4)
+                        log(f"🟡 Sideway or Unknown trend: {symbol}")
+                        continue
 
                 except Exception as e:
                     log(f"⚠️ Trend prediction error for {symbol}: {e}")
