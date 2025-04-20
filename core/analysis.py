@@ -25,10 +25,12 @@ def run_analysis_loop():
                     signal = calculate_indicators(symbol, ohlcv)
                 except:
                     continue
+
                 if not signal:
                     continue
 
                 signal['confidence'] += get_sentiment_boost(symbol)
+
                 if signal['trade_type'] == "Scalping" and signal['confidence'] < 60:
                     continue
                 if signal['trade_type'] == "Normal" and signal['confidence'] < 75:
@@ -38,34 +40,35 @@ def run_analysis_loop():
                 if not whale_check(symbol, exchange):
                     continue
 
-               try:
-    signal['prediction'] = predict_trend(symbol, ohlcv)
+                try:
+                    signal['prediction'] = predict_trend(symbol, ohlcv)
+                    price = signal['price']
+                    atr = signal.get('atr', 0)
 
-    price = signal['price']
-    atr = signal.get('atr', 0)
+                    if signal['prediction'] == "LONG":
+                        signal['tp1'] = round(price + atr * 1.5, 3)
+                        signal['tp2'] = round(price + atr * 3, 3)
+                        signal['tp3'] = round(price + atr * 5, 3)
+                        signal['sl'] = round(price - atr * 1.5, 3)
+                    else:
+                        signal['tp1'] = round(price - atr * 1.5, 3)
+                        signal['tp2'] = round(price - atr * 3, 3)
+                        signal['tp3'] = round(price - atr * 5, 3)
+                        signal['sl'] = round(price + atr * 1.5, 3)
 
-    if signal['prediction'] == "LONG":
-        signal['tp1'] = round(price + atr * 1.5, 3)
-        signal['tp2'] = round(price + atr * 3, 3)
-        signal['tp3'] = round(price + atr * 5, 3)
-        signal['sl'] = round(price - atr * 1.5, 3)
-    else:
-        signal['tp1'] = round(price - atr * 1.5, 3)
-        signal['tp2'] = round(price - atr * 3, 3)
-        signal['tp3'] = round(price - atr * 5, 3)
-        signal['sl'] = round(price + atr * 1.5, 3)
+                    # ✅ Save timestamp and log signal data
+                    sent_signals[symbol] = time.time()
+                    log_signal_to_csv(signal)
+                    log(f"✅ Signal: {symbol} | {signal['trade_type']} | {signal['prediction']} | {signal['confidence']}%")
 
-except Exception as e:
-    log(f"⚠️ Trend prediction error for {symbol}: {e}")
-    continue
+                    # ✅ Send to Telegram
+                    send_signal(signal)
 
-# ✅ Save timestamp and log signal data
-sent_signals[symbol] = now
-log_signal_to_csv(signal)
-log(f"✅ Signal: {symbol} | {signal['trade_type']} | {signal['prediction']} | {signal['confidence']}%")
+                except Exception as e:
+                    log(f"⚠️ Trend prediction error for {symbol}: {e}")
+                    continue
 
-# ✅ Send to Telegram
-send_signal(signal)
         except Exception as e:
             log(f"❌ Analysis Error: {e}")
+
         time.sleep(120)
