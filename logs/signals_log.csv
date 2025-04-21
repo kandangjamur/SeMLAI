@@ -1,1 +1,1 @@
-symbol,price,confidence,trade_type,timestamp,prediction,tp1,tp2,tp3,sl,status
+symbol,confidence,trade_type,direction,price,tp1,tp2,tp3,sl,timestamp
