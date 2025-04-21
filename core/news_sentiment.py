@@ -1,32 +1,19 @@
-# core/news_sentiment.py
-
+import os
 import requests
-from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+load_dotenv()
 
-def fetch_trending_coins():
-    try:
-        url = "https://coinmarketcap.com/trending-cryptocurrencies/"
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url, headers=headers, timeout=10)
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        names = soup.select("tbody tr td:nth-of-type(3) a")
-        trending = [name.text.strip().upper() + "/USDT" for name in names[:10]]
-
-        print(f"[TRENDING] {trending}")
-        return trending
-    except Exception as e:
-        print(f"[Trending Fetch Error] {e}")
-        return []
+API_KEY = os.getenv("NEWS_API_KEY")
 
 def get_sentiment_boost(symbol):
-    trending = fetch_trending_coins()
-    if symbol.upper() in trending:
-        print(f"[SENTIMENT BOOST] {symbol} is trending! +10 boost applied.")
-        return 10
-    return 0
-
-def start_sentiment_stream():
-    print("[Sentiment] Sentiment stream initialized.")
-    # Ye function ab bas system ko init kar raha hai
-    # Real-time news stream agar add karni ho to uska block alag milega
+    try:
+        query = symbol.split('/')[0]
+        url = f"https://newsapi.org/v2/everything?q={query}&apiKey={API_KEY}"
+        response = requests.get(url)
+        if response.status_code == 200 and 'articles' in response.json():
+            articles = response.json()['articles']
+            if len(articles) > 2:
+                return 5
+        return 0
+    except:
+        return 0
