@@ -1,4 +1,3 @@
-from telebot.bot import start_telegram_bot
 import pandas as pd
 from flask import Flask
 from threading import Thread
