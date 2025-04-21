@@ -1,8 +1,6 @@
-def classify_trade(signal):
-    confidence = signal['confidence']
+def classify_trade_type(confidence):
     if confidence >= 90:
-        return "Spot"
-    elif confidence >= 75:
         return "Normal"
-    else:
+    elif confidence >= 85:
         return "Scalping"
+    return None
