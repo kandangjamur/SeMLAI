@@ -1,25 +1,11 @@
-# --- Web Server ---
-flask
-python-dotenv
-
-# --- Telegram Bot ---
+flask==2.2.5
+python-dotenv==1.0.1
 python-telegram-bot==13.15
-
-# --- Data & Analysis ---
-pandas
-numpy
-scikit-learn
-
-# --- Exchange & Technical Indicators ---
-ccxt
-ta
-
-# --- Web Scraping for Trending Coins ---
-requests
-beautifulsoup4
-
-# --- CSV Logging & Reporting ---
-openpyxl
-
-# --- Optional (for future chart reports) ---
-matplotlib
+pandas==1.5.3
+numpy==1.24.4
+scikit-learn==1.2.2
+ccxt==4.1.84
+ta==0.10.2
+requests==2.31.0
+beautifulsoup4==4.12.3
+openpyxl==3.1.2
