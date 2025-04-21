@@ -7,6 +7,13 @@ from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
 def calculate_indicators(symbol, ohlcv):
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
 
+    # Support/Resistance levels
+    sr_levels = detect_sr_levels(df)
+    support = sr_levels["support"]
+    resistance = sr_levels["resistance"]
+    midpoint = round((support + resistance) / 2, 3) if support and resistance else None
+
+    # Indicators
     df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
     df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
     df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
@@ -39,15 +46,15 @@ def calculate_indicators(symbol, ohlcv):
     if is_breakout_candle(df):
         confidence += 10
 
+    # Price targets
     price = latest["close"]
     atr = latest["atr"]
     fib_tp1, fib_tp2, fib_tp3 = calculate_fibonacci_levels(price, direction="LONG")
-    sr_support, sr_resistance = detect_sr_levels(df)
 
     tp1 = round(fib_tp1 if fib_tp1 else price + atr * 2, 3)
     tp2 = round(fib_tp2 if fib_tp2 else price + atr * 3.5, 3)
     tp3 = round(fib_tp3 if fib_tp3 else price + atr * 5, 3)
-    sl = round(sr_support if sr_support else price - atr * 1.8, 3)
+    sl = round(support if support else price - atr * 1.8, 3)
 
     if confidence < 80:
         return None
@@ -66,5 +73,8 @@ def calculate_indicators(symbol, ohlcv):
         "tp3": tp3,
         "sl": sl,
         "atr": atr,
-        "leverage": leverage
+        "leverage": leverage,
+        "support": support,
+        "resistance": resistance,
+        "midpoint": midpoint
     }
