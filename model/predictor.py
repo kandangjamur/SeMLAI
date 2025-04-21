@@ -1,20 +1,8 @@
 def predict_trend(symbol, ohlcv):
-    try:
-        import pandas as pd
-        import ta
-
-        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
-        macd = ta.trend.MACD(df["close"])
-        df["macd"] = macd.macd()
-        df["macd_signal"] = macd.macd_signal()
-
-        last = df.iloc[-1]
-        if last["rsi"] > 50 and last["macd"] > last["macd_signal"]:
-            return "LONG"
-        elif last["rsi"] < 50 and last["macd"] < last["macd_signal"]:
-            return "SHORT"
-        else:
-            return "LONG"  # default fallback
-    except Exception as e:
+    closes = [c[4] for c in ohlcv]
+    if closes[-1] > closes[-5] and closes[-1] > closes[-10]:
         return "LONG"
+    elif closes[-1] < closes[-5] and closes[-1] < closes[-10]:
+        return "SHORT"
+    else:
+        return "RANGE"
