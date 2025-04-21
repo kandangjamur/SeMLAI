@@ -1,10 +1,10 @@
+# utils/support_resistance.py
 import numpy as np
 import pandas as pd
 
 def detect_sr_levels(df):
     """
-    Detect basic support and resistance levels based on swing highs and lows.
-    Returns dict with 'support' and 'resistance' levels.
+    Detect support & resistance using swing highs/lows and return support, resistance, midpoint.
     """
     highs = df['high'].values
     lows = df['low'].values
@@ -19,17 +19,8 @@ def detect_sr_levels(df):
         if highs[i] > highs[i-1] and highs[i] > highs[i+1] and highs[i+1] > highs[i+2] and highs[i-1] > highs[i-2]:
             resistance.append(highs[i])
 
-    if support:
-        support_level = round(np.median(support), 3)
-    else:
-        support_level = None
+    support_level = round(np.median(support), 3) if support else None
+    resistance_level = round(np.median(resistance), 3) if resistance else None
+    midpoint = round((support_level + resistance_level) / 2, 3) if support_level and resistance_level else None
 
-    if resistance:
-        resistance_level = round(np.median(resistance), 3)
-    else:
-        resistance_level = None
-
-    return {
-        "support": support_level,
-        "resistance": resistance_level
-    }
+    return support_level, resistance_level, midpoint
