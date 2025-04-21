@@ -1,31 +1,31 @@
 import pandas as pd
 from datetime import datetime
-from telebot.bot import bot
 from utils.logger import log
 
 def generate_daily_summary():
     try:
         df = pd.read_csv("logs/signals_log.csv")
-        today = datetime.now().strftime("%Y-%m-%d")
-        today_df = df[df["timestamp"].str.contains(today)]
+        today = datetime.now().date()
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        today_signals = df[df['timestamp'].dt.date == today]
 
-        total = len(today_df)
-        tp1 = len(today_df[today_df["status"] == "TP1"])
-        tp2 = len(today_df[today_df["status"] == "TP2"])
-        tp3 = len(today_df[today_df["status"] == "TP3"])
-        sl = len(today_df[today_df["status"] == "SL"])
-        open_ = len(today_df[today_df["status"] == "OPEN"])
+        total = len(today_signals)
+        tp1_hits = len(today_signals[today_signals['status'] == 'tp1'])
+        tp2_hits = len(today_signals[today_signals['status'] == 'tp2'])
+        tp3_hits = len(today_signals[today_signals['status'] == 'tp3'])
+        sl_hits = len(today_signals[today_signals['status'] == 'sl'])
 
-        msg = (
-            f"📅 *Daily Report* - {today}\n"
-            f"Total Signals: `{total}`\n"
-            f"TP1 Hit: `{tp1}`\n"
-            f"TP2 Hit: `{tp2}`\n"
-            f"TP3 Hit: `{tp3}`\n"
-            f"SL Hit: `{sl}`\n"
-            f"Open: `{open_}`"
+        summary = (
+            f"📊 *Daily Summary ({today})*\n\n"
+            f"📌 Total Signals: {total}\n"
+            f"🎯 TP1 Hits: {tp1_hits}\n"
+            f"🎯 TP2 Hits: {tp2_hits}\n"
+            f"🎯 TP3 Hits: {tp3_hits}\n"
+            f"🛡 SL Hits: {sl_hits}\n"
         )
-        bot.send_message(chat_id=os.getenv("TELEGRAM_CHAT_ID"), text=msg, parse_mode="Markdown")
-        log("📩 Daily report sent to Telegram")
+
+        from telebot.bot import bot, CHAT_ID
+        bot.send_message(chat_id=CHAT_ID, text=summary, parse_mode="Markdown")
+        log("📬 Daily report sent.")
     except Exception as e:
-        log(f"❌ Report error: {e}")
+        log(f"❌ Report Error: {e}")
