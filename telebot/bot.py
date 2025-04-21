@@ -1,3 +1,4 @@
+# telebot/bot.py
 import os
 from dotenv import load_dotenv
 from telegram import Bot, ParseMode, Update
@@ -60,10 +61,15 @@ def manual_scan(update: Update, context: CallbackContext):
         update.message.reply_text(f"❌ Error: {e}")
 
 def start_telegram_bot():
-    dispatcher.add_handler(CommandHandler("manualreport", manual_report))
-    dispatcher.add_handler(CommandHandler("backtest", manual_backtest))
-    dispatcher.add_handler(CommandHandler("status", status))
-    dispatcher.add_handler(CommandHandler("manualscan", manual_scan))
+    try:
+        bot.delete_webhook()  # 🔥 Fix webhook conflict
 
-    updater.start_polling()
-    log("✅ Telegram bot ready with all commands.")
+        dispatcher.add_handler(CommandHandler("manualreport", manual_report))
+        dispatcher.add_handler(CommandHandler("backtest", manual_backtest))
+        dispatcher.add_handler(CommandHandler("status", status))
+        dispatcher.add_handler(CommandHandler("manualscan", manual_scan))
+
+        updater.start_polling()
+        log("✅ Telegram bot ready with all commands.")
+    except Exception as e:
+        log(f"❌ Telegram Bot Init Error: {e}")
