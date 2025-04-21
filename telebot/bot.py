@@ -1,54 +1,84 @@
-import time
-import ccxt
-from core.indicators import calculate_indicators
-from model.predictor import predict_trend
-from telebot.bot import send_signal
-from utils.logger import log, log_signal_to_csv
-from data.tracker import update_signal_status
+# telebot/bot.py
+import os
+from dotenv import load_dotenv
+from telegram import Bot, ParseMode, Update
+from telegram.ext import Updater, CommandHandler, CallbackContext
+from utils.logger import log
 
-sent_signals = {}
+load_dotenv()
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-def run_analysis_loop():
-    log("📊 Starting Market Scan")
-    exchange = ccxt.binance()
-    symbols = [s for s in exchange.load_markets() if "/USDT" in s]
+# ✅ Bot init
+bot = Bot(token=TOKEN)
+updater = Updater(token=TOKEN, use_context=True)
+dispatcher = updater.dispatcher
 
-    while True:
-        log("🔁 New Scan Cycle")
-        for symbol in symbols:
-            log(f"🔍 Scanning: {symbol}")
-            try:
-                ohlcv = exchange.fetch_ohlcv(symbol, '15m', limit=100)
-                signal = calculate_indicators(symbol, ohlcv)
-                if not signal:
-                    continue
+# ✅ Send Signal Function (called from analysis)
+def send_signal(signal):
+    try:
+        msg = (
+            f"📊 *Crypto Sniper Signal*\n"
+            f"*{signal['symbol']}*\n\n"
+            f"📈 Direction: `{signal['prediction']}`\n"
+            f"🔥 Confidence: `{signal['confidence']}%`\n"
+            f"🎯 Type: `{signal['trade_type']}`\n"
+            f"⚡ Leverage: `{signal['leverage']}x`\n"
+            f"💰 Entry: `{signal['price']}`\n\n"
+            f"🎯 TP1: `{signal['tp1']}`\n"
+            f"🎯 TP2: `{signal['tp2']}`\n"
+            f"🎯 TP3: `{signal['tp3']}`\n"
+            f"🛡 SL: `{signal['sl']}`"
+        )
+        bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode=ParseMode.MARKDOWN)
+        log(f"📨 Signal sent: {signal['symbol']}")
+    except Exception as e:
+        log(f"❌ Telegram Send Error: {e}")
 
-                if symbol in sent_signals and time.time() - sent_signals[symbol] < 1800:
-                    continue
+# ✅ /manualreport
+def manual_report(update: Update, context: CallbackContext):
+    try:
+        from telebot.report_generator import generate_daily_summary
+        generate_daily_summary()
+        update.message.reply_text("📊 Daily report generated.")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {e}")
+        log(f"❌ Manual report error: {e}")
 
-                signal['prediction'] = predict_trend(symbol, ohlcv)
-                log_signal_to_csv(signal)
-                send_signal(signal)
-                sent_signals[symbol] = time.time()
-                log(f"✅ Signal sent: {symbol} ({signal['confidence']}%)")
+# ✅ /backtest
+def manual_backtest(update: Update, context: CallbackContext):
+    try:
+        from core.backtester import run_backtest_report
+        run_backtest_report()
+        update.message.reply_text("📈 Backtest report triggered.")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {e}")
+        log(f"❌ Manual backtest error: {e}")
 
-            except Exception as e:
-                log(f"❌ Error for {symbol}: {e}")
+# ✅ /status
+def status(update: Update, context: CallbackContext):
+    update.message.reply_text("✅ Crypto Sniper is running and ready.")
 
-        update_signal_status()
-        time.sleep(120)
+# ✅ /manualscan
+def manual_scan(update: Update, context: CallbackContext):
+    try:
+        from core.analysis import run_analysis_once
+        run_analysis_once()
+        update.message.reply_text("🔁 Manual market scan started.")
+    except Exception as e:
+        update.message.reply_text(f"❌ Error: {e}")
+        log(f"❌ Manual scan error: {e}")
 
-def run_analysis_once():
-    exchange = ccxt.binance()
-    symbols = [s for s in exchange.load_markets() if "/USDT" in s]
-    for symbol in symbols[:20]:
-        try:
-            ohlcv = exchange.fetch_ohlcv(symbol, '15m', limit=100)
-            signal = calculate_indicators(symbol, ohlcv)
-            if not signal:
-                continue
-            signal['prediction'] = predict_trend(symbol, ohlcv)
-            log_signal_to_csv(signal)
-            send_signal(signal)
-        except Exception as e:
-            log(f"❌ Manual Scan Error: {symbol} -> {e}")
+# ✅ Init Bot + Commands
+def start_telegram_bot():
+    try:
+        bot.delete_webhook()  # 🔥 Fix webhook conflict (important!)
+        dispatcher.add_handler(CommandHandler("manualreport", manual_report))
+        dispatcher.add_handler(CommandHandler("backtest", manual_backtest))
+        dispatcher.add_handler(CommandHandler("status", status))
+        dispatcher.add_handler(CommandHandler("manualscan", manual_scan))
+
+        updater.start_polling()
+        log("✅ Telegram bot ready with all commands.")
+    except Exception as e:
+        log(f"❌ Telegram Bot Init Error: {e}")
