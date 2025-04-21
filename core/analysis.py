@@ -23,9 +23,46 @@ def run_analysis_loop():
                 if not signal:
                     continue
 
+                # Log base confidence
+                log(f"🧠 Base Confidence: {signal['confidence']}% | Type: {signal['trade_type']}")
+
+                # Reject weak TP2 potential
+                if signal["tp2"] - signal["price"] < 0.015:
+                    log(f"⚠️ Skipped {symbol} - Weak TP2 margin")
+                    continue
+
+                # S/R Filtering Logic
+                support = signal.get("support")
+                resistance = signal.get("resistance")
+                price = signal["price"]
+                atr = signal.get("atr", 0)
+                direction = signal["prediction"]
+                buffer = atr * 1.5 if atr else price * 0.01
+
+                if direction == "LONG":
+                    if resistance and resistance - price > buffer:
+                        signal["confidence"] += 5
+                        log("📈 S/R Boost: Price well below resistance ✅")
+                    else:
+                        log(f"⛔ Skipped {symbol} - Too close to resistance")
+                        continue
+
+                elif direction == "SHORT":
+                    if support and price - support > buffer:
+                        signal["confidence"] += 5
+                        log("📉 S/R Boost: Price well above support ✅")
+                    else:
+                        log(f"⛔ Skipped {symbol} - Too close to support")
+                        continue
+
+                # Final confidence log
+                log(f"🧠 Final Confidence: {signal['confidence']}%")
+
+                # Skip duplicate within 30 mins
                 if symbol in sent_signals and time.time() - sent_signals[symbol] < 1800:
                     continue
 
+                # Predict direction
                 signal['prediction'] = predict_trend(symbol, ohlcv)
                 log_signal_to_csv(signal)
                 send_signal(signal)
