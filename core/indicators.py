@@ -7,13 +7,13 @@ from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
 def calculate_indicators(symbol, ohlcv):
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
 
-    # Support/Resistance levels
-    sr_levels = detect_sr_levels(df)
-    support = sr_levels["support"]
-    resistance = sr_levels["resistance"]
+    # Get Support/Resistance levels
+    sr = detect_sr_levels(df)
+    support = sr["support"]
+    resistance = sr["resistance"]
     midpoint = round((support + resistance) / 2, 3) if support and resistance else None
 
-    # Indicators
+    # Calculate technical indicators
     df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
     df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
     df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
@@ -46,10 +46,12 @@ def calculate_indicators(symbol, ohlcv):
     if is_breakout_candle(df):
         confidence += 10
 
-    # Price targets
     price = latest["close"]
     atr = latest["atr"]
-    fib_tp1, fib_tp2, fib_tp3 = calculate_fibonacci_levels(price, direction="LONG")
+
+    # Fibonacci-based TP levels
+    fib_levels = calculate_fibonacci_levels(price, direction="LONG")
+    fib_tp1, fib_tp2, fib_tp3 = fib_levels.get("tp1"), fib_levels.get("tp2"), fib_levels.get("tp3")
 
     tp1 = round(fib_tp1 if fib_tp1 else price + atr * 2, 3)
     tp2 = round(fib_tp2 if fib_tp2 else price + atr * 3.5, 3)
