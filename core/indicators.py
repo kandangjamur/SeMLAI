@@ -5,7 +5,6 @@ from utils.fibonacci import calculate_fibonacci_levels
 from utils.support_resistance import detect_sr_levels
 from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
 
-# Suppress ta-lib warnings (invalid divide, etc.)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 def calculate_indicators(symbol, ohlcv):
@@ -14,7 +13,6 @@ def calculate_indicators(symbol, ohlcv):
 
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
 
-    # Validate for NaNs or empty sets
     if df.isnull().values.any():
         return None
 
@@ -31,21 +29,18 @@ def calculate_indicators(symbol, ohlcv):
     df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
     latest = df.iloc[-1].to_dict()
-    confidence = 0
 
-    # ✅ Confidence logic with null checks
-    if pd.notna(latest["ema_20"]) and pd.notna(latest["ema_50"]) and latest["ema_20"] > latest["ema_50"]:
+    confidence = 0
+    if latest["ema_20"] > latest["ema_50"]:
         confidence += 20
-    if pd.notna(latest["rsi"]) and pd.notna(latest["volume_sma"]) and latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
+    if latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
         confidence += 15
-    if pd.notna(latest["macd"]) and pd.notna(latest["macd_signal"]) and latest["macd"] > latest["macd_signal"]:
+    if latest["macd"] > latest["macd_signal"]:
         confidence += 15
     if pd.notna(latest["adx"]) and latest["adx"] > 20:
         confidence += 10
-    if pd.notna(latest["stoch_rsi"]) and latest["stoch_rsi"] < 0.2:
+    if latest["stoch_rsi"] < 0.2:
         confidence += 10
-
-    # ✅ Candle logic stays
     if is_bullish_engulfing(df):
         confidence += 10
     if is_breakout_candle(df):
@@ -54,7 +49,6 @@ def calculate_indicators(symbol, ohlcv):
     price = latest["close"]
     atr = latest["atr"]
 
-    # ✅ S/R + Fibonacci logic
     sr = detect_sr_levels(df)
     support = sr.get("support")
     resistance = sr.get("resistance")
