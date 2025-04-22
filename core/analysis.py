@@ -49,16 +49,19 @@ def run_analysis_loop():
 
                 log(f"🧠 Base Confidence: {signal['confidence']}% | Type: {signal['trade_type']}")
 
+                # Reject if TP2 margin is too weak
                 if signal["tp2"] - signal["price"] < 0.015:
                     log(f"⚠️ Skipped {symbol} - Weak TP2 margin")
                     continue
 
+                # S/R Filtering Logic
                 support = signal.get("support")
                 resistance = signal.get("resistance")
                 price = signal["price"]
                 atr = signal.get("atr", 0)
                 buffer = atr * 1.5 if atr else price * 0.01
 
+                # Predict direction using 15m data; will adjust with multi-timeframe boost later
                 direction = predict_trend(symbol, ohlcv)
                 signal["prediction"] = direction
 
@@ -77,6 +80,7 @@ def run_analysis_loop():
                         log(f"⛔ Skipped {symbol} - Too close to support")
                         continue
 
+                # Multi-timeframe trend alignment boost
                 mtf_boost = multi_timeframe_boost(symbol, exchange, direction)
                 signal["confidence"] += mtf_boost
                 if mtf_boost:
