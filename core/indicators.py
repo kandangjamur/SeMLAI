@@ -5,19 +5,20 @@ from utils.fibonacci import calculate_fibonacci_levels
 from utils.support_resistance import detect_sr_levels
 from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
 
-# Suppress scalar warnings (e.g., invalid divide in ta)
+# Suppress ta-lib warnings (invalid divide, etc.)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 def calculate_indicators(symbol, ohlcv):
+    if not ohlcv or len(ohlcv) < 50:
+        return None
+
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
 
-    # Get Support/Resistance levels
-    sr = detect_sr_levels(df)
-    support = sr["support"]
-    resistance = sr["resistance"]
-    midpoint = round((support + resistance) / 2, 3) if support and resistance else None
+    # Validate for NaNs or empty sets
+    if df.isnull().values.any():
+        return None
 
-    # Calculate technical indicators
+    # Indicators
     df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
     df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
     df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
@@ -29,22 +30,22 @@ def calculate_indicators(symbol, ohlcv):
     df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"]).adx()
     df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
-    if len(df) < 50:
-        return None
-
     latest = df.iloc[-1].to_dict()
-
     confidence = 0
-    if latest["ema_20"] > latest["ema_50"]:
+
+    # ✅ Confidence logic with null checks
+    if pd.notna(latest["ema_20"]) and pd.notna(latest["ema_50"]) and latest["ema_20"] > latest["ema_50"]:
         confidence += 20
-    if latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
+    if pd.notna(latest["rsi"]) and pd.notna(latest["volume_sma"]) and latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
         confidence += 15
-    if latest["macd"] > latest["macd_signal"]:
+    if pd.notna(latest["macd"]) and pd.notna(latest["macd_signal"]) and latest["macd"] > latest["macd_signal"]:
         confidence += 15
-    if not pd.isna(latest["adx"]) and latest["adx"] > 20:  # ✅ Safe check
+    if pd.notna(latest["adx"]) and latest["adx"] > 20:
         confidence += 10
-    if latest["stoch_rsi"] < 0.2:
+    if pd.notna(latest["stoch_rsi"]) and latest["stoch_rsi"] < 0.2:
         confidence += 10
+
+    # ✅ Candle logic stays
     if is_bullish_engulfing(df):
         confidence += 10
     if is_breakout_candle(df):
@@ -53,10 +54,16 @@ def calculate_indicators(symbol, ohlcv):
     price = latest["close"]
     atr = latest["atr"]
 
-    fib_levels = calculate_fibonacci_levels(price, direction="LONG")
-    tp1 = round(fib_levels.get("tp1", price + atr * 2), 3)
-    tp2 = round(fib_levels.get("tp2", price + atr * 3.5), 3)
-    tp3 = round(fib_levels.get("tp3", price + atr * 5), 3)
+    # ✅ S/R + Fibonacci logic
+    sr = detect_sr_levels(df)
+    support = sr.get("support")
+    resistance = sr.get("resistance")
+    midpoint = round((support + resistance) / 2, 3) if support and resistance else None
+
+    fib = calculate_fibonacci_levels(price, direction="LONG")
+    tp1 = round(fib.get("tp1", price + atr * 2), 3)
+    tp2 = round(fib.get("tp2", price + atr * 3.5), 3)
+    tp3 = round(fib.get("tp3", price + atr * 5), 3)
     sl = round(support if support else price - atr * 1.8, 3)
 
     if confidence < 80:
