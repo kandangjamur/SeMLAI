@@ -28,9 +28,9 @@ def calculate_indicators(symbol, ohlcv):
     if len(df) < 50:
         return None
 
-    latest = df.iloc[-1]
-    confidence = 0
+    latest = df.iloc[-1].to_dict()  # ✅ Fix applied here
 
+    confidence = 0
     if latest["ema_20"] > latest["ema_50"]:
         confidence += 20
     if latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
