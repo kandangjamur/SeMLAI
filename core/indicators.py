@@ -1,8 +1,12 @@
 import pandas as pd
 import ta
+import warnings
 from utils.fibonacci import calculate_fibonacci_levels
 from utils.support_resistance import detect_sr_levels
 from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
+
+# Suppress scalar warnings (e.g., invalid divide in ta)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 def calculate_indicators(symbol, ohlcv):
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
@@ -28,7 +32,7 @@ def calculate_indicators(symbol, ohlcv):
     if len(df) < 50:
         return None
 
-    latest = df.iloc[-1].to_dict()  # ✅ Fix applied here
+    latest = df.iloc[-1].to_dict()
 
     confidence = 0
     if latest["ema_20"] > latest["ema_50"]:
@@ -37,7 +41,7 @@ def calculate_indicators(symbol, ohlcv):
         confidence += 15
     if latest["macd"] > latest["macd_signal"]:
         confidence += 15
-    if latest["adx"] > 20:
+    if not pd.isna(latest["adx"]) and latest["adx"] > 20:  # ✅ Safe check
         confidence += 10
     if latest["stoch_rsi"] < 0.2:
         confidence += 10
@@ -49,13 +53,10 @@ def calculate_indicators(symbol, ohlcv):
     price = latest["close"]
     atr = latest["atr"]
 
-    # Fibonacci-based TP levels
     fib_levels = calculate_fibonacci_levels(price, direction="LONG")
-    fib_tp1, fib_tp2, fib_tp3 = fib_levels.get("tp1"), fib_levels.get("tp2"), fib_levels.get("tp3")
-
-    tp1 = round(fib_tp1 if fib_tp1 else price + atr * 2, 3)
-    tp2 = round(fib_tp2 if fib_tp2 else price + atr * 3.5, 3)
-    tp3 = round(fib_tp3 if fib_tp3 else price + atr * 5, 3)
+    tp1 = round(fib_levels.get("tp1", price + atr * 2), 3)
+    tp2 = round(fib_levels.get("tp2", price + atr * 3.5), 3)
+    tp3 = round(fib_levels.get("tp3", price + atr * 5), 3)
     sl = round(support if support else price - atr * 1.8, 3)
 
     if confidence < 80:
