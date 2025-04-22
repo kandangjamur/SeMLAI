@@ -12,10 +12,11 @@ def log_signal_to_csv(signal):
         'price', 'tp1', 'tp2', 'tp3', 'sl', 'timestamp'
     ]
     row = [
-        signal['symbol'], signal['confidence'], signal['trade_type'], signal['prediction'],
+        signal['symbol'], signal['confidence'], signal['trade_type'], signal.get('prediction', ''),
         signal['price'], signal['tp1'], signal['tp2'], signal['tp3'], signal['sl'], signal['timestamp']
     ]
     file_exists = os.path.isfile(log_path)
+    os.makedirs("logs", exist_ok=True)
     with open(log_path, mode='a', newline='') as file:
         writer = csv.writer(file)
         if not file_exists:
