@@ -1,4 +1,3 @@
-# telebot/bot.py
 import os
 from dotenv import load_dotenv
 from telegram import Bot, ParseMode, Update
@@ -9,12 +8,10 @@ load_dotenv()
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# ✅ Bot init
 bot = Bot(token=TOKEN)
 updater = Updater(token=TOKEN, use_context=True)
 dispatcher = updater.dispatcher
 
-# ✅ Send Signal Function (called from analysis)
 def send_signal(signal):
     try:
         msg = (
@@ -28,51 +25,48 @@ def send_signal(signal):
             f"🎯 TP1: `{signal['tp1']}`\n"
             f"🎯 TP2: `{signal['tp2']}`\n"
             f"🎯 TP3: `{signal['tp3']}`\n"
-            f"🛡 SL: `{signal['sl']}`"
+            f"🛡 SL: `{signal['sl']}`\n\n"
+            f"🧱 Support: `{signal.get('support', '-')}`\n"
+            f"🧱 Resistance: `{signal.get('resistance', '-')}`"
         )
         bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode=ParseMode.MARKDOWN)
         log(f"📨 Signal sent: {signal['symbol']}")
     except Exception as e:
         log(f"❌ Telegram Send Error: {e}")
 
-# ✅ /manualreport
 def manual_report(update: Update, context: CallbackContext):
+    from telebot.report_generator import generate_daily_summary
     try:
-        from telebot.report_generator import generate_daily_summary
         generate_daily_summary()
         update.message.reply_text("📊 Daily report generated.")
     except Exception as e:
         update.message.reply_text(f"❌ Error: {e}")
         log(f"❌ Manual report error: {e}")
 
-# ✅ /backtest
 def manual_backtest(update: Update, context: CallbackContext):
+    from core.backtester import run_backtest_report
     try:
-        from core.backtester import run_backtest_report
         run_backtest_report()
         update.message.reply_text("📈 Backtest report triggered.")
     except Exception as e:
         update.message.reply_text(f"❌ Error: {e}")
         log(f"❌ Manual backtest error: {e}")
 
-# ✅ /status
 def status(update: Update, context: CallbackContext):
     update.message.reply_text("✅ Crypto Sniper is running and ready.")
 
-# ✅ /manualscan
 def manual_scan(update: Update, context: CallbackContext):
+    from core.analysis import run_analysis_once
     try:
-        from core.analysis import run_analysis_once
         run_analysis_once()
         update.message.reply_text("🔁 Manual market scan started.")
     except Exception as e:
         update.message.reply_text(f"❌ Error: {e}")
         log(f"❌ Manual scan error: {e}")
 
-# ✅ Init Bot + Commands
 def start_telegram_bot():
     try:
-        bot.delete_webhook()  # 🔥 Fix webhook conflict (important!)
+        bot.delete_webhook()  # Delete any active webhook before polling
         dispatcher.add_handler(CommandHandler("manualreport", manual_report))
         dispatcher.add_handler(CommandHandler("backtest", manual_backtest))
         dispatcher.add_handler(CommandHandler("status", status))
