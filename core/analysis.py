@@ -7,6 +7,7 @@ from telebot.bot import send_signal
 from utils.logger import log, log_signal_to_csv
 from data.tracker import update_signal_status
 
+# Exclude leveraged tokens or ETFs
 blacklist = ["BULL", "BEAR", "2X", "3X", "5X", "DOWN", "UP", "ETF"]
 sent_signals = {}
 
@@ -36,7 +37,7 @@ def run_analysis_loop():
                     continue
 
                 ticker = exchange.fetch_ticker(symbol)
-                if ticker.get("baseVolume", 0) < 100000:
+                if ticker.get("baseVolume", 0) < 120000:
                     log(f"⚠️ Skipped {symbol} - Low volume")
                     continue
 
@@ -46,7 +47,7 @@ def run_analysis_loop():
 
                 log(f"🧠 Base Confidence: {signal['confidence']}% | Type: {signal['trade_type']}")
 
-                if signal["tp2"] - signal["price"] < 0.015:
+                if signal["tp2"] - signal["price"] < 0.01:
                     log(f"⚠️ Skipped {symbol} - Weak TP2 margin")
                     continue
 
@@ -81,7 +82,7 @@ def run_analysis_loop():
 
                 log(f"🧠 Final Confidence: {signal['confidence']}%")
 
-                if symbol in sent_signals and time.time() - sent_signals[symbol] < 1800:
+                if symbol in sent_signals and time.time() - sent_signals[symbol] < 900:
                     continue
 
                 log_debug_info(signal)
