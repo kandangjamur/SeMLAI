@@ -1,18 +1,14 @@
-<!-- dashboard/templates/dashboard.html -->
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Crypto Sniper - Signal Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { padding: 30px; background-color: #111; color: #fff; }
-        .table { background-color: #222; color: #eee; }
-        .table th, .table td { border-color: #444; }
-        h1 { margin-bottom: 25px; color: #6ce3ff; }
-    </style>
+    <meta charset="UTF-8">
+    <title>Crypto Sniper Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <h1>📊 Crypto Sniper Dashboard</h1>
-    {{ content | safe }}
+    <h1>Crypto Sniper Signal Dashboard</h1>
+    <div class="content">
+        {{ content|safe }}
+    </div>
 </body>
 </html>
