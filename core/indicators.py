@@ -12,7 +12,6 @@ def calculate_indicators(symbol, ohlcv):
         return None
 
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-
     if df.isnull().values.any():
         return None
 
@@ -29,8 +28,9 @@ def calculate_indicators(symbol, ohlcv):
     df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
     latest = df.iloc[-1].to_dict()
-
     confidence = 0
+
+    # Scoring logic
     if latest["ema_20"] > latest["ema_50"]:
         confidence += 20
     if latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
@@ -48,22 +48,26 @@ def calculate_indicators(symbol, ohlcv):
 
     price = latest["close"]
     atr = latest["atr"]
-
     sr = detect_sr_levels(df)
     support = sr.get("support")
     resistance = sr.get("resistance")
     midpoint = round((support + resistance) / 2, 3) if support and resistance else None
 
+    # TP/SL Calculation
     fib = calculate_fibonacci_levels(price, direction="LONG")
-    tp1 = round(fib.get("tp1", price + atr * 2), 3)
-    tp2 = round(fib.get("tp2", price + atr * 3.5), 3)
-    tp3 = round(fib.get("tp3", price + atr * 5), 3)
+    tp1 = round(fib.get("tp1", price + atr * 1.2), 3)
+    tp2 = round(fib.get("tp2", price + atr * 2.5), 3)
+    tp3 = round(fib.get("tp3", price + atr * 4.5), 3)
     sl = round(support if support else price - atr * 1.8, 3)
 
-    if confidence < 80:
-        return None
+    # Dynamic thresholds
+    if confidence >= 85:
+        trade_type = "Normal"
+    elif 75 <= confidence < 85:
+        trade_type = "Scalping"
+    else:
+        return None  # Below 75% = ignored
 
-    trade_type = "Scalping" if 80 <= confidence < 90 else "Normal"
     leverage = min(max(int(confidence / 2), 3), 50)
 
     return {
