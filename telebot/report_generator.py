@@ -16,12 +16,12 @@ def generate_daily_summary():
         sl_hits = len(today_signals[today_signals['status'] == 'sl'])
 
         summary = (
-            f"📊 *Daily Summary — {today}*\n\n"
-            f"📌 Total Signals: `{total}`\n"
-            f"🎯 TP1 Hits: `{tp1_hits}`\n"
-            f"🎯 TP2 Hits: `{tp2_hits}`\n"
-            f"🎯 TP3 Hits: `{tp3_hits}`\n"
-            f"🛡 SL Hits: `{sl_hits}`\n"
+            f"📊 *Daily Summary ({today})*\n\n"
+            f"📌 Total Signals: {total}\n"
+            f"🎯 TP1 Hits: {tp1_hits}\n"
+            f"🎯 TP2 Hits: {tp2_hits}\n"
+            f"🎯 TP3 Hits: {tp3_hits}\n"
+            f"🛡 SL Hits: {sl_hits}\n"
         )
 
         from telebot.bot import bot, CHAT_ID
