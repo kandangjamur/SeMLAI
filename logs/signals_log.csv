@@ -1,1 +1,2 @@
-symbol,confidence,trade_type,direction,price,tp1,tp2,tp3,sl,timestamp
+timestamp	symbol	price	confidence	trade_type	tp1	tp2	tp3	sl
+
