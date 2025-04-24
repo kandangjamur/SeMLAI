@@ -1,4 +1,4 @@
-# main.py
+
 import os, time
 import pandas as pd
 from fastapi import FastAPI, Request
@@ -16,10 +16,8 @@ from telebot.report_generator import generate_daily_summary
 
 app = FastAPI()
 
-# Setup Jinja2 templates
 templates_dir = os.path.join(os.path.dirname(__file__), "dashboard/templates")
 env = Environment(loader=FileSystemLoader(templates_dir))
-
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 
 @app.get("/", response_class=HTMLResponse)
@@ -31,11 +29,9 @@ async def index(request: Request):
         html_table = df.to_html(index=False, classes="table table-striped", escape=False)
     except Exception as e:
         html_table = f"<p>Error loading log: {e}</p>"
-
     template = env.get_template("dashboard.html")
     return template.render(content=html_table)
 
-# Background services
 def daily_report_loop():
     while True:
         now = datetime.now()
@@ -62,7 +58,6 @@ if __name__ == "__main__":
         Thread(target=daily_report_loop).start()
         Thread(target=tracker_loop).start()
         Thread(target=heartbeat).start()
-
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8000)
     except Exception as e:
