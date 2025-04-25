@@ -30,7 +30,7 @@ def calculate_indicators(symbol, ohlcv):
     latest = df.iloc[-1].to_dict()
     confidence = 0
 
-    # Scoring logic
+    # Scoring System
     if latest["ema_20"] > latest["ema_50"]:
         confidence += 20
     if latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
@@ -48,30 +48,27 @@ def calculate_indicators(symbol, ohlcv):
 
     price = latest["close"]
     atr = latest["atr"]
+
     sr = detect_sr_levels(df)
     support = sr.get("support")
     resistance = sr.get("resistance")
     midpoint = round((support + resistance) / 2, 3) if support and resistance else None
 
-    # TP/SL Calculation
     fib = calculate_fibonacci_levels(price, direction="LONG")
     tp1 = round(fib.get("tp1", price + atr * 1.2), 3)
     tp2 = round(fib.get("tp2", price + atr * 2.5), 3)
     tp3 = round(fib.get("tp3", price + atr * 4.5), 3)
     sl = round(support if support else price - atr * 1.8, 3)
 
-    # Dynamic Possibility %
+    # 🎯 Dynamic TP Hit Possibility (%)
     tp1_possibility = round(96 - (abs(tp1 - price) / price * 100), 2)
     tp2_possibility = round(87 - (abs(tp2 - price) / price * 100), 2)
     tp3_possibility = round(72 - (abs(tp3 - price) / price * 100), 2)
 
-    if confidence >= 85:
-        trade_type = "Normal"
-    elif 75 <= confidence < 85:
-        trade_type = "Scalping"
-    else:
+    if confidence < 75:
         return None
 
+    trade_type = "Normal" if confidence >= 85 else "Scalping"
     leverage = min(max(int(confidence / 2), 3), 50)
 
     return {
@@ -91,5 +88,5 @@ def calculate_indicators(symbol, ohlcv):
         "midpoint": midpoint,
         "tp1_possibility": tp1_possibility,
         "tp2_possibility": tp2_possibility,
-        "tp3_possibility": tp3_possibility
+        "tp3_possibility": tp3_possibility,
     }
