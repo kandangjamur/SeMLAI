@@ -32,10 +32,17 @@ async def index(request: Request):
     update_signal_status()
     try:
         df = pd.read_csv("logs/signals_log.csv")
+
+        if 'timestamp' not in df.columns:
+            df['timestamp'] = datetime.now().timestamp()
+
+        if 'status' not in df.columns:
+            df['status'] = 'pending'
+
         df = df.sort_values(by="timestamp", ascending=False)
 
-        # Add dynamic confidence badge
-        df["confidence"] = df["confidence"].apply(lambda c: f"<span class='badge bg-primary'>{c}%</span>")
+        if 'confidence' in df.columns:
+            df["confidence"] = df["confidence"].apply(lambda c: f"<span class='badge bg-primary'>{c}%</span>")
 
         html_table = df.to_html(index=False, classes="table table-striped", escape=False)
     except Exception as e:
@@ -74,7 +81,6 @@ if __name__ == "__main__":
         Thread(target=daily_report_loop).start()
         Thread(target=tracker_loop).start()
         Thread(target=heartbeat).start()
-
         import uvicorn
         uvicorn.run("main:app", host="0.0.0.0", port=8000)
     except Exception as e:
