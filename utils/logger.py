@@ -1,39 +1,37 @@
 import os
-import csv
+import pandas as pd
 from datetime import datetime
 
-LOG_FILE = "logs/signals_log.csv"
-os.makedirs("logs", exist_ok=True)
+log_path = "logs"
+log_file = os.path.join(log_path, "signals_log.csv")
 
-def log(message):
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    print(f"[{now}] {message}")
+if not os.path.exists(log_path):
+    os.makedirs(log_path)
+
+def log(msg):
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
 def log_signal_to_csv(signal):
-    headers = [
-        "timestamp", "symbol", "price", "confidence", "trade_type",
-        "prediction", "tp1", "tp2", "tp3", "tp1_prob", "tp2_prob", "tp3_prob",
-        "sl", "leverage", "status"
-    ]
-    file_exists = os.path.exists(LOG_FILE)
-    with open(LOG_FILE, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=headers)
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow({
-            "timestamp": signal["timestamp"],
-            "symbol": signal["symbol"],
-            "price": signal["price"],
-            "confidence": signal["confidence"],
-            "trade_type": signal["trade_type"],
-            "prediction": signal["prediction"],
-            "tp1": signal["tp1"],
-            "tp2": signal["tp2"],
-            "tp3": signal["tp3"],
-            "tp1_prob": signal.get("tp1_prob", ""),
-            "tp2_prob": signal.get("tp2_prob", ""),
-            "tp3_prob": signal.get("tp3_prob", ""),
-            "sl": signal["sl"],
-            "leverage": signal["leverage"],
-            "status": "active"
-        })
+    row = {
+        "timestamp": signal["timestamp"],
+        "symbol": signal["symbol"],
+        "confidence": signal["confidence"],
+        "trade_type": signal["trade_type"],
+        "direction": signal["prediction"],
+        "price": signal["price"],
+        "tp1": signal["tp1"],
+        "tp2": signal["tp2"],
+        "tp3": signal["tp3"],
+        "sl": signal["sl"],
+        "leverage": signal["leverage"],
+        "status": "pending"
+    }
+    try:
+        df = pd.DataFrame([row])
+        if os.path.exists(log_file):
+            df.to_csv(log_file, mode='a', header=False, index=False)
+        else:
+            df.to_csv(log_file, index=False)
+        log(f"📥 Signal logged to CSV: {signal['symbol']}")
+    except Exception as e:
+        log(f"❌ CSV Logging Error: {e}")
