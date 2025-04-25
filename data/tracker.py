@@ -1,6 +1,6 @@
 import pandas as pd
-import os
 import ccxt
+import os
 from utils.logger import log
 
 def update_signal_status():
@@ -8,41 +8,40 @@ def update_signal_status():
     if not os.path.exists(path):
         return
 
-    try:
-        df = pd.read_csv(path)
-        exchange = ccxt.binance()
-        updated = []
+    exchange = ccxt.binance()
+    df = pd.read_csv(path)
+    updated = False
 
-        for index, row in df.iterrows():
-            if row.get("status") in ["tp1", "tp2", "tp3", "sl"]:
+    for i in df.index:
+        try:
+            row = df.loc[i]
+            if row["status"] != "active":
                 continue
 
             symbol = row["symbol"]
-            price = exchange.fetch_ticker(symbol)["last"]
+            entry = float(row["price"])
+            tp1 = float(row["tp1"])
+            tp2 = float(row["tp2"])
+            tp3 = float(row["tp3"])
+            sl = float(row["sl"])
 
-            if row["prediction"] == "LONG":
-                if price >= row["tp3"]:
-                    df.at[index, "status"] = "tp3"
-                elif price >= row["tp2"]:
-                    df.at[index, "status"] = "tp2"
-                elif price >= row["tp1"]:
-                    df.at[index, "status"] = "tp1"
-                elif price <= row["sl"]:
-                    df.at[index, "status"] = "sl"
-            elif row["prediction"] == "SHORT":
-                if price <= row["tp3"]:
-                    df.at[index, "status"] = "tp3"
-                elif price <= row["tp2"]:
-                    df.at[index, "status"] = "tp2"
-                elif price <= row["tp1"]:
-                    df.at[index, "status"] = "tp1"
-                elif price >= row["sl"]:
-                    df.at[index, "status"] = "sl"
+            ticker = exchange.fetch_ticker(symbol)
+            current_price = ticker['last']
 
-            updated.append(symbol)
+            if entry < tp1 < current_price:
+                df.at[i, "status"] = "tp1"
+                updated = True
+            elif entry < tp2 < current_price:
+                df.at[i, "status"] = "tp2"
+                updated = True
+            elif entry < tp3 < current_price:
+                df.at[i, "status"] = "tp3"
+                updated = True
+            elif current_price < sl:
+                df.at[i, "status"] = "sl"
+                updated = True
+        except Exception as e:
+            log(f"[Tracker Error] {e}")
 
+    if updated:
         df.to_csv(path, index=False)
-        if updated:
-            log(f"📈 Status updated for: {', '.join(updated)}")
-    except Exception as e:
-        log(f"❌ Tracker Error: {e}")
