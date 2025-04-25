@@ -1,4 +1,3 @@
-# core/analysis.py
 import time
 import ccxt
 from core.indicators import calculate_indicators
@@ -14,11 +13,17 @@ sent_signals = {}
 def is_blacklisted(symbol):
     return any(term in symbol for term in blacklist)
 
+def get_probabilities(conf):
+    return {
+        "tp1_prob": min(98, conf + 3),
+        "tp2_prob": min(90, conf - 2),
+        "tp3_prob": min(80, conf - 10)
+    }
+
 def log_debug_info(signal):
     log(f"📌 AUDIT LOG — {signal['symbol']}")
-    log(f"Confidence: {signal['confidence']}% | TP1: {signal['tp1']} | TP2: {signal['tp2']} | TP3: {signal['tp3']} | SL: {signal['sl']}")
-    log(f"TP chances => TP1: {signal['tp1_chance']}% | TP2: {signal['tp2_chance']}% | TP3: {signal['tp3_chance']}%")
-    log(f"Leverage: {signal['leverage']}x | Prediction: {signal['prediction']}")
+    log(f"Confidence: {signal['confidence']}% | Type: {signal['trade_type']} | Prediction: {signal['prediction']}")
+    log(f"TP1: {signal['tp1']} | TP2: {signal['tp2']} | TP3: {signal['tp3']} | SL: {signal['sl']}")
 
 def run_analysis_loop():
     log("📊 Starting Market Scan")
@@ -29,40 +34,35 @@ def run_analysis_loop():
     while True:
         log("🔁 New Scan Cycle")
         for symbol in symbols:
-            log(f"🔍 Scanning: {symbol}")
             try:
                 ohlcv = exchange.fetch_ohlcv(symbol, '15m', limit=100)
                 if not ohlcv or len(ohlcv) < 50:
                     continue
 
                 ticker = exchange.fetch_ticker(symbol)
-                if ticker.get("baseVolume", 0) < 100000:
-                    log(f"⚠️ Skipped {symbol} - Low volume")
+                if ticker.get("baseVolume", 0) < 150000:
                     continue
 
                 signal = calculate_indicators(symbol, ohlcv)
-                if not signal:
-                    continue
+                if not signal: continue
 
                 direction = predict_trend(symbol, ohlcv)
                 signal["prediction"] = direction
 
-                buffer = signal["atr"] * 1.5
-                price = signal["price"]
-                support = signal["support"]
-                resistance = signal["resistance"]
-
-                if direction == "LONG" and resistance and resistance - price > buffer:
-                    signal["confidence"] += 5
-                elif direction == "SHORT" and support and price - support > buffer:
-                    signal["confidence"] += 5
-                else:
-                    continue
-
                 mtf_boost = multi_timeframe_boost(symbol, exchange, direction)
                 signal["confidence"] += mtf_boost
+                signal.update(get_probabilities(signal["confidence"]))
 
-                if signal["confidence"] < 75:
+                if signal["confidence"] < 80:
+                    continue
+
+                signal_type_check = signal["tp2"] - signal["price"]
+                if signal_type_check < 0.01:
+                    continue
+
+                if direction == "LONG" and signal["resistance"] and (signal["resistance"] - signal["price"]) < signal["atr"]:
+                    continue
+                if direction == "SHORT" and signal["support"] and (signal["price"] - signal["support"]) < signal["atr"]:
                     continue
 
                 if symbol in sent_signals and time.time() - sent_signals[symbol] < 900:
