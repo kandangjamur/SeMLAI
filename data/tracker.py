@@ -1,47 +1,36 @@
 import pandas as pd
 import ccxt
-import os
 from utils.logger import log
 
 def update_signal_status():
-    path = "logs/signals_log.csv"
-    if not os.path.exists(path):
-        return
+    try:
+        df = pd.read_csv("logs/signals_log.csv")
+        exchange = ccxt.binance()
+        updated = False
 
-    exchange = ccxt.binance()
-    df = pd.read_csv(path)
-    updated = False
-
-    for i in df.index:
-        try:
-            row = df.loc[i]
-            if row["status"] != "active":
+        for index, row in df.iterrows():
+            if row["status"] != "pending":
                 continue
 
-            symbol = row["symbol"]
-            entry = float(row["price"])
-            tp1 = float(row["tp1"])
-            tp2 = float(row["tp2"])
-            tp3 = float(row["tp3"])
-            sl = float(row["sl"])
+            ticker = exchange.fetch_ticker(row["symbol"])
+            high = ticker.get("high", 0)
+            low = ticker.get("low", 0)
 
-            ticker = exchange.fetch_ticker(symbol)
-            current_price = ticker['last']
+            if row["tp3"] <= high:
+                df.at[index, "status"] = "tp3"
+                updated = True
+            elif row["tp2"] <= high:
+                df.at[index, "status"] = "tp2"
+                updated = True
+            elif row["tp1"] <= high:
+                df.at[index, "status"] = "tp1"
+                updated = True
+            elif row["sl"] >= low:
+                df.at[index, "status"] = "sl"
+                updated = True
 
-            if entry < tp1 < current_price:
-                df.at[i, "status"] = "tp1"
-                updated = True
-            elif entry < tp2 < current_price:
-                df.at[i, "status"] = "tp2"
-                updated = True
-            elif entry < tp3 < current_price:
-                df.at[i, "status"] = "tp3"
-                updated = True
-            elif current_price < sl:
-                df.at[i, "status"] = "sl"
-                updated = True
-        except Exception as e:
-            log(f"[Tracker Error] {e}")
-
-    if updated:
-        df.to_csv(path, index=False)
+        if updated:
+            df.to_csv("logs/signals_log.csv", index=False)
+            log("📈 Signal status updated.")
+    except Exception as e:
+        log(f"❌ Tracker Error: {e}")
