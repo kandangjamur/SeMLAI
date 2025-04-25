@@ -10,16 +10,16 @@ bot = telegram.Bot(token=BOT_TOKEN)
 
 def send_signal(signal):
     message = (
-        f"🚀 *{signal['symbol']}* Signal Alert\n\n"
-        f"🔹 Type: {signal['trade_type']}\n"
-        f"🔹 Direction: {signal['prediction']}\n"
-        f"📊 Confidence: *{signal['confidence']}%*\n"
-        f"🎯 TP1: `{signal['tp1']}`\n"
-        f"🎯 TP2: `{signal['tp2']}`\n"
-        f"🎯 TP3: `{signal['tp3']}`\n"
-        f"🛡 SL: `{signal['sl']}`\n"
-        f"📉 Entry: `{signal['price']}`\n"
-        f"📈 Leverage: {signal['leverage']}x\n"
+        f"🚀 Signal: *{signal['symbol']}*\n"
+        f"🧠 Confidence: *{signal['confidence']}%*\n"
+        f"📈 Direction: *{signal['prediction']}*\n"
+        f"📊 Type: *{signal['trade_type']}*\n"
+        f"📍 Entry: `${signal['price']}`\n"
+        f"🎯 TP1: `${signal['tp1']}` (Possibility: {signal.get('tp1_possibility', 'N/A')}%)\n"
+        f"🎯 TP2: `${signal['tp2']}` (Possibility: {signal.get('tp2_possibility', 'N/A')}%)\n"
+        f"🎯 TP3: `${signal['tp3']}` (Possibility: {signal.get('tp3_possibility', 'N/A')}%)\n"
+        f"🛡 SL: `${signal['sl']}`\n"
+        f"⚙️ Leverage: {signal['leverage']}x"
     )
     bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
 
