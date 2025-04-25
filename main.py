@@ -2,7 +2,7 @@ import os
 import time
 import pandas as pd
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from jinja2 import Environment, FileSystemLoader
 from threading import Thread
@@ -20,7 +20,7 @@ app = FastAPI()
 templates_dir = os.path.join(os.path.dirname(__file__), "dashboard/templates")
 env = Environment(loader=FileSystemLoader(templates_dir))
 
-# Create static directory if missing (important for Koyeb)
+# Ensure static dir exists
 static_dir = os.path.join("dashboard", "static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir)
@@ -33,11 +33,20 @@ async def index(request: Request):
     try:
         df = pd.read_csv("logs/signals_log.csv")
         df = df.sort_values(by="timestamp", ascending=False)
+
+        # Add dynamic confidence badge
+        df["confidence"] = df["confidence"].apply(lambda c: f"<span class='badge bg-primary'>{c}%</span>")
+
         html_table = df.to_html(index=False, classes="table table-striped", escape=False)
     except Exception as e:
         html_table = f"<p>Error loading log: {e}</p>"
+
     template = env.get_template("dashboard.html")
     return template.render(content=html_table)
+
+@app.get("/health")
+async def health():
+    return PlainTextResponse("OK", status_code=200)
 
 def daily_report_loop():
     while True:
@@ -67,6 +76,6 @@ if __name__ == "__main__":
         Thread(target=heartbeat).start()
 
         import uvicorn
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        uvicorn.run("main:app", host="0.0.0.0", port=8000)
     except Exception as e:
         log(f"❌ Main Crash: {e}")
