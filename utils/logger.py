@@ -1,31 +1,39 @@
 import os
-import pandas as pd
+import csv
 from datetime import datetime
 
-def log(msg):
-    now = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
-    print(f"{now} {msg}")
+LOG_FILE = "logs/signals_log.csv"
+os.makedirs("logs", exist_ok=True)
+
+def log(message):
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{now}] {message}")
 
 def log_signal_to_csv(signal):
-    os.makedirs("logs", exist_ok=True)
-    path = "logs/signals_log.csv"
-    row = {
-        "symbol": signal["symbol"],
-        "price": signal["price"],
-        "tp1": signal["tp1"],
-        "tp2": signal["tp2"],
-        "tp3": signal["tp3"],
-        "sl": signal["sl"],
-        "confidence": signal["confidence"],
-        "leverage": signal["leverage"],
-        "type": signal["trade_type"],
-        "prediction": signal["prediction"],
-        "timestamp": int(datetime.utcnow().timestamp() * 1000),
-        "status": "pending"
-    }
-
-    df = pd.DataFrame([row])
-    if not os.path.exists(path):
-        df.to_csv(path, index=False)
-    else:
-        df.to_csv(path, mode='a', header=False, index=False)
+    headers = [
+        "timestamp", "symbol", "price", "confidence", "trade_type",
+        "prediction", "tp1", "tp2", "tp3", "tp1_prob", "tp2_prob", "tp3_prob",
+        "sl", "leverage", "status"
+    ]
+    file_exists = os.path.exists(LOG_FILE)
+    with open(LOG_FILE, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=headers)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({
+            "timestamp": signal["timestamp"],
+            "symbol": signal["symbol"],
+            "price": signal["price"],
+            "confidence": signal["confidence"],
+            "trade_type": signal["trade_type"],
+            "prediction": signal["prediction"],
+            "tp1": signal["tp1"],
+            "tp2": signal["tp2"],
+            "tp3": signal["tp3"],
+            "tp1_prob": signal.get("tp1_prob", ""),
+            "tp2_prob": signal.get("tp2_prob", ""),
+            "tp3_prob": signal.get("tp3_prob", ""),
+            "sl": signal["sl"],
+            "leverage": signal["leverage"],
+            "status": "active"
+        })
