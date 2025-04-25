@@ -1,28 +1,27 @@
-from telegram import Bot, ParseMode
-from telegram.ext import Updater, CommandHandler
-from utils.logger import log
 import os
+import telegram
+from dotenv import load_dotenv
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
+load_dotenv()
 
-bot = Bot(token=BOT_TOKEN)
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+bot = telegram.Bot(token=BOT_TOKEN)
 
 def send_signal(signal):
     message = (
-        f"🚨 *New Signal Detected*\n\n"
-        f"*Pair:* `{signal['symbol']}`\n"
-        f"*Confidence:* `{signal['confidence']}%`\n"
-        f"*Type:* `{signal['trade_type']} ({signal['prediction']})`\n"
-        f"*Leverage:* `{signal['leverage']}x`\n"
-        f"*TP1:* `{signal['tp1']} ({signal.get('tp1_prob', 'N/A')}%)`\n"
-        f"*TP2:* `{signal['tp2']} ({signal.get('tp2_prob', 'N/A')}%)`\n"
-        f"*TP3:* `{signal['tp3']} ({signal.get('tp3_prob', 'N/A')}%)`\n"
-        f"*SL:* `{signal['sl']}`"
+        f"🚀 *{signal['symbol']}* Signal Alert\n\n"
+        f"🔹 Type: {signal['trade_type']}\n"
+        f"🔹 Direction: {signal['prediction']}\n"
+        f"📊 Confidence: *{signal['confidence']}%*\n"
+        f"🎯 TP1: `{signal['tp1']}`\n"
+        f"🎯 TP2: `{signal['tp2']}`\n"
+        f"🎯 TP3: `{signal['tp3']}`\n"
+        f"🛡 SL: `{signal['sl']}`\n"
+        f"📉 Entry: `{signal['price']}`\n"
+        f"📈 Leverage: {signal['leverage']}x\n"
     )
-    bot.send_message(chat_id=CHAT_ID, text=message, parse_mode=ParseMode.MARKDOWN)
+    bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
 
 def start_telegram_bot():
-    updater = Updater(BOT_TOKEN, use_context=True)
-    updater.start_polling()
-    log("📲 Telegram bot started")
+    print("📲 Telegram bot started")
