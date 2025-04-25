@@ -1,17 +1,23 @@
 import pandas as pd
 import ta
+import warnings
 from utils.fibonacci import calculate_fibonacci_levels
 from utils.support_resistance import detect_sr_levels
 from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
 
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 def calculate_indicators(symbol, ohlcv):
-    if len(ohlcv) < 50: return None
+    if not ohlcv or len(ohlcv) < 50:
+        return None
 
     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    if df.isnull().values.any():
+        return None
 
-    df["ema_20"] = ta.trend.EMAIndicator(df["close"], 20).ema_indicator()
-    df["ema_50"] = ta.trend.EMAIndicator(df["close"], 50).ema_indicator()
-    df["rsi"] = ta.momentum.RSIIndicator(df["close"], 14).rsi()
+    df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
+    df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
+    df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
     df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
     macd = ta.trend.MACD(df["close"])
     df["macd"] = macd.macd()
@@ -23,19 +29,27 @@ def calculate_indicators(symbol, ohlcv):
     latest = df.iloc[-1].to_dict()
     confidence = 0
 
-    if latest["ema_20"] > latest["ema_50"]: confidence += 20
-    if latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]: confidence += 15
-    if latest["macd"] > latest["macd_signal"]: confidence += 15
-    if latest["adx"] > 20: confidence += 10
-    if latest["stoch_rsi"] < 0.2: confidence += 10
-    if is_bullish_engulfing(df): confidence += 10
-    if is_breakout_candle(df): confidence += 10
+    if latest["ema_20"] > latest["ema_50"]:
+        confidence += 20
+    if latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
+        confidence += 15
+    if latest["macd"] > latest["macd_signal"]:
+        confidence += 15
+    if pd.notna(latest["adx"]) and latest["adx"] > 20:
+        confidence += 10
+    if latest["stoch_rsi"] < 0.2:
+        confidence += 10
+    if is_bullish_engulfing(df):
+        confidence += 10
+    if is_breakout_candle(df):
+        confidence += 10
 
     price = latest["close"]
     atr = latest["atr"]
     sr = detect_sr_levels(df)
     support = sr.get("support")
     resistance = sr.get("resistance")
+    midpoint = round((support + resistance) / 2, 3) if support and resistance else None
 
     fib = calculate_fibonacci_levels(price, direction="LONG")
     tp1 = round(fib.get("tp1", price + atr * 1.2), 3)
@@ -43,10 +57,13 @@ def calculate_indicators(symbol, ohlcv):
     tp3 = round(fib.get("tp3", price + atr * 4.5), 3)
     sl = round(support if support else price - atr * 1.8, 3)
 
-    if confidence < 75:
+    if confidence >= 85:
+        trade_type = "Normal"
+    elif 75 <= confidence < 85:
+        trade_type = "Scalping"
+    else:
         return None
 
-    trade_type = "Scalping" if 75 <= confidence < 85 else "Normal"
     leverage = min(max(int(confidence / 2), 3), 50)
 
     return {
@@ -62,5 +79,6 @@ def calculate_indicators(symbol, ohlcv):
         "atr": atr,
         "leverage": leverage,
         "support": support,
-        "resistance": resistance
+        "resistance": resistance,
+        "midpoint": midpoint
     }
