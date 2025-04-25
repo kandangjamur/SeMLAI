@@ -1,50 +1,53 @@
-import ccxt
 import pandas as pd
 from core.indicators import calculate_indicators
 from model.predictor import predict_trend
-from datetime import datetime
+import ccxt
+from utils.logger import log
 
 def run_backtest():
     exchange = ccxt.binance()
     markets = exchange.load_markets()
-    symbols = [s for s in markets if "/USDT" in s and "DOWN" not in s and "UP" not in s]
+    symbols = [s for s in markets if "/USDT" in s and "UP" not in s and "DOWN" not in s]
+
     results = []
 
-    for symbol in symbols[:30]:
-        print(f"⏱ Backtesting: {symbol}")
+    for symbol in symbols[:30]:  # limit for demo
         try:
-            df = exchange.fetch_ohlcv(symbol, '15m', limit=500)
-            signals = []
+            ohlcv = exchange.fetch_ohlcv(symbol, '15m', limit=200)
+            for i in range(50, len(ohlcv)-1):
+                subset = ohlcv[i-50:i]
+                signal = calculate_indicators(symbol, subset)
+                if not signal:
+                    continue
+                signal["prediction"] = predict_trend(symbol, subset)
+                entry = signal["price"]
+                highs = [c[2] for c in ohlcv[i+1:i+10]]
+                lows = [c[3] for c in ohlcv[i+1:i+10]]
 
-            for i in range(100, len(df), 5):
-                sub_df = df[i-100:i]
-                signal = calculate_indicators(symbol, sub_df)
-                if signal:
-                    signal['prediction'] = predict_trend(symbol, sub_df)
-                    signals.append(signal)
-
-            for s in signals:
-                price = s['price']
-                tp1, tp2, tp3, sl = s['tp1'], s['tp2'], s['tp3'], s['sl']
-                simulated_prices = [row[4] for row in df[df.index(s['timestamp']):df.index(s['timestamp'])+20]]
-
-                hit = "none"
-                for sp in simulated_prices:
-                    if sp >= tp1: hit = "tp1"; break
-                    elif sp >= tp2: hit = "tp2"; break
-                    elif sp >= tp3: hit = "tp3"; break
-                    elif sp <= sl: hit = "sl"; break
+                status = "pending"
+                if signal["tp3"] <= max(highs):
+                    status = "tp3"
+                elif signal["tp2"] <= max(highs):
+                    status = "tp2"
+                elif signal["tp1"] <= max(highs):
+                    status = "tp1"
+                elif signal["sl"] >= min(lows):
+                    status = "sl"
 
                 results.append({
                     "symbol": symbol,
-                    "conf": s['confidence'],
-                    "result": hit,
-                    "type": s['trade_type']
+                    "confidence": signal["confidence"],
+                    "type": signal["trade_type"],
+                    "prediction": signal["prediction"],
+                    "tp1": signal["tp1"],
+                    "tp2": signal["tp2"],
+                    "tp3": signal["tp3"],
+                    "sl": signal["sl"],
+                    "status": status
                 })
-
         except Exception as e:
-            print(f"Error: {e}")
+            log(f"Backtest Error: {symbol} -> {e}")
 
-    df_out = pd.DataFrame(results)
-    df_out.to_csv("logs/backtest_results.csv", index=False)
-    print("✅ Backtest complete. Logged to CSV.")
+    df = pd.DataFrame(results)
+    df.to_csv("logs/backtest_results.csv", index=False)
+    log("📈 Backtest complete.")
