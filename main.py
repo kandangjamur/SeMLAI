@@ -1,5 +1,6 @@
-# main.py
-import os, time, pandas as pd
+import os
+import time
+import pandas as pd
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,11 +16,11 @@ from utils.logger import log
 
 app = FastAPI()
 
+# Jinja2 Template setup
 templates_dir = os.path.join(os.path.dirname(__file__), "dashboard/templates")
 env = Environment(loader=FileSystemLoader(templates_dir))
 static_dir = os.path.join("dashboard", "static")
-if not os.path.exists(static_dir):
-    os.makedirs(static_dir)
+os.makedirs(static_dir, exist_ok=True)
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
@@ -29,7 +30,7 @@ async def index(request: Request):
     try:
         df = pd.read_csv("logs/signals_log.csv")
         df = df.sort_values(by="timestamp", ascending=False)
-        df["confidence"] = df["confidence"].astype(str) + "%"
+        df['confidence'] = df['confidence'].astype(str) + "%"
         html_table = df.to_html(index=False, classes="table table-striped", escape=False)
     except Exception as e:
         html_table = f"<p>Error loading log: {e}</p>"
@@ -62,6 +63,7 @@ if __name__ == "__main__":
         Thread(target=daily_report_loop).start()
         Thread(target=tracker_loop).start()
         Thread(target=heartbeat).start()
+
         import uvicorn
         uvicorn.run(app, host="0.0.0.0", port=8000)
     except Exception as e:
