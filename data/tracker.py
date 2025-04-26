@@ -9,10 +9,7 @@ def update_signal_status():
         updated = False
 
         for index, row in df.iterrows():
-            # Skip if already closed or missing required fields
-            if str(row.get("status", "")).lower() != "pending":
-                continue
-            if not all(k in row for k in ["symbol", "tp1", "tp2", "tp3", "sl"]):
+            if row["status"] != "pending":
                 continue
 
             ticker = exchange.fetch_ticker(row["symbol"])
