@@ -20,7 +20,7 @@ app = FastAPI()
 templates_dir = os.path.join(os.path.dirname(__file__), "dashboard/templates")
 env = Environment(loader=FileSystemLoader(templates_dir))
 
-# Ensure static dir exists
+# Ensure static directory exists
 static_dir = os.path.join("dashboard", "static")
 if not os.path.exists(static_dir):
     os.makedirs(static_dir)
@@ -32,17 +32,13 @@ async def index(request: Request):
     update_signal_status()
     try:
         df = pd.read_csv("logs/signals_log.csv")
-
-        if 'timestamp' not in df.columns:
-            df['timestamp'] = datetime.now().timestamp()
-
-        if 'status' not in df.columns:
-            df['status'] = 'pending'
-
         df = df.sort_values(by="timestamp", ascending=False)
 
-        if 'confidence' in df.columns:
-            df["confidence"] = df["confidence"].apply(lambda c: f"<span class='badge bg-primary'>{c}%</span>")
+        # Display dynamic confidence
+        df["confidence"] = df["confidence"].apply(lambda c: f"<span class='badge bg-primary'>{c}%</span>")
+        df["tp1_possibility"] = df["tp1_possibility"].apply(lambda p: f"<span class='badge bg-success'>{p}%</span>")
+        df["tp2_possibility"] = df["tp2_possibility"].apply(lambda p: f"<span class='badge bg-success'>{p}%</span>")
+        df["tp3_possibility"] = df["tp3_possibility"].apply(lambda p: f"<span class='badge bg-success'>{p}%</span>")
 
         html_table = df.to_html(index=False, classes="table table-striped", escape=False)
     except Exception as e:
@@ -81,6 +77,7 @@ if __name__ == "__main__":
         Thread(target=daily_report_loop).start()
         Thread(target=tracker_loop).start()
         Thread(target=heartbeat).start()
+
         import uvicorn
         uvicorn.run("main:app", host="0.0.0.0", port=8000)
     except Exception as e:
