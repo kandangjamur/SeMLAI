@@ -1,110 +1,95 @@
-import pandas as pd
-import ta
-import warnings
-from utils.fibonacci import calculate_fibonacci_levels
-from utils.support_resistance import detect_sr_levels
-from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
+import time
+import ccxt
+from core.indicators import calculate_indicators
+from core.multi_timeframe import multi_timeframe_boost
+from model.predictor import predict_trend
+from telebot.bot import send_signal
+from utils.logger import log, log_signal_to_csv
+from data.tracker import update_signal_status
 
-warnings.filterwarnings("ignore", category=RuntimeWarning)
+blacklist = ["BULL", "BEAR", "2X", "3X", "5X", "DOWN", "UP", "ETF"]
+sent_signals = {}
 
-def calculate_indicators(symbol, ohlcv):
-    if not ohlcv or len(ohlcv) < 50:
-        return None
+def is_blacklisted(symbol):
+    return any(term in symbol for term in blacklist)
 
-    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    if df.isnull().values.any():
-        return None
+def log_debug_info(signal):
+    log(f"📌 AUDIT LOG — {signal['symbol']}")
+    log(f"Confidence: {signal['confidence']}% | Type: {signal['trade_type']}")
+    log(f"TP1: {signal['tp1']} ({signal['tp1_possibility']}%) | TP2: {signal['tp2']} ({signal['tp2_possibility']}%) | TP3: {signal['tp3']} ({signal['tp3_possibility']}%) | SL: {signal['sl']}")
+    log(f"Support: {signal.get('support')} | Resistance: {signal.get('resistance')}")
+    log(f"Leverage: {signal['leverage']}x | Prediction: {signal['prediction']}")
 
-    # TA Indicators
-    df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
-    df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
-    df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
-    df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
-    macd = ta.trend.MACD(df["close"])
-    df["macd"] = macd.macd()
-    df["macd_signal"] = macd.macd_signal()
-    df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"]).stochrsi_k()
-    df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"]).adx()
-    df["volume_sma"] = df["volume"].rolling(window=20).mean()
+def run_analysis_loop():
+    log("📊 Starting Market Scan")
+    exchange = ccxt.binance()
+    markets = exchange.load_markets()
+    symbols = [s for s in markets if "/USDT" in s and not is_blacklisted(s)]
 
-    latest = df.iloc[-1].to_dict()
-    price = latest["close"]
-    atr = latest["atr"]
+    while True:
+        log("🔁 New Scan Cycle")
+        for symbol in symbols:
+            try:
+                log(f"🔍 Scanning: {symbol}")
+                ohlcv = exchange.fetch_ohlcv(symbol, '15m', limit=100)
+                if not ohlcv or len(ohlcv) < 50:
+                    continue
 
-    confidence = 0
-    if latest["ema_20"] > latest["ema_50"]:
-        confidence += 20
-    if latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
-        confidence += 15
-    if latest["macd"] > latest["macd_signal"]:
-        confidence += 15
-    if pd.notna(latest["adx"]) and latest["adx"] > 20:
-        confidence += 10
-    if latest["stoch_rsi"] < 0.2:
-        confidence += 10
-    if is_bullish_engulfing(df):
-        confidence += 10
-    if is_breakout_candle(df):
-        confidence += 10
+                ticker = exchange.fetch_ticker(symbol)
+                if ticker.get("baseVolume", 0) < 120000:
+                    continue
 
-    # S/R + Midpoint
-    sr = detect_sr_levels(df)
-    support = sr.get("support")
-    resistance = sr.get("resistance")
-    midpoint = round((support + resistance) / 2, 3) if support and resistance else None
+                signal = calculate_indicators(symbol, ohlcv)
+                if not signal:
+                    continue
 
-    # Fibonacci-based TP/SL
-    fib = calculate_fibonacci_levels(price, direction="LONG")  # Direction used in final step
-    tp1 = round(fib.get("tp1", price + atr * 1.2), 3)
-    tp2 = round(fib.get("tp2", price + atr * 2.5), 3)
-    tp3 = round(fib.get("tp3", price + atr * 4.5), 3)
-    sl = round(support if support else price - atr * 1.8, 3)
+                price = signal["price"]
+                log(f"🧠 Base Confidence: {signal['confidence']}% | Type: {signal['trade_type']}")
 
-    # Dynamic Possibility Calculations
-    pattern_boost = 0
-    if is_bullish_engulfing(df): pattern_boost += 5
-    if is_breakout_candle(df): pattern_boost += 5
-    if latest["macd"] > latest["macd_signal"]: pattern_boost += 5
-    if latest["rsi"] > 60: pattern_boost += 5
-    if pd.notna(latest["adx"]) and latest["adx"] > 25: pattern_boost += 5
+                if signal["tp2"] - price < 0.01:
+                    continue
 
-    base_strength = confidence + pattern_boost
+                support = signal.get("support")
+                resistance = signal.get("resistance")
+                atr = signal.get("atr", 0)
+                buffer = atr * 1.5 if atr else price * 0.01
 
-    tp1_diff = abs(tp1 - price) / price * 100
-    tp2_diff = abs(tp2 - price) / price * 100
-    tp3_diff = abs(tp3 - price) / price * 100
-    volatility_impact = atr / price * 100
+                direction = predict_trend(symbol, ohlcv)
+                signal["prediction"] = direction
 
-    tp1_possibility = round(min(99, base_strength - tp1_diff - volatility_impact), 2)
-    tp2_possibility = round(min(99, base_strength - tp2_diff - volatility_impact * 1.2), 2)
-    tp3_possibility = round(min(99, base_strength - tp3_diff - volatility_impact * 1.5), 2)
+                if direction == "LONG":
+                    if resistance and resistance - price > buffer:
+                        signal["confidence"] += 5
+                    else:
+                        continue
+                elif direction == "SHORT":
+                    if support and price - support > buffer:
+                        signal["confidence"] += 5
+                    else:
+                        continue
+                else:
+                    continue
 
-    # Trade Type Logic
-    if confidence >= 85:
-        trade_type = "Normal"
-    elif 75 <= confidence < 85:
-        trade_type = "Scalping"
-    else:
-        return None  # Low-confidence, skip
+                mtf_boost = multi_timeframe_boost(symbol, exchange, direction)
+                signal["confidence"] += mtf_boost
 
-    leverage = min(max(int(confidence / 2), 3), 50)
+                # 🎯 Add dynamic TP possibilities
+                signal["tp1_possibility"] = round(max(50, 100 - abs(signal["tp1"] - price) / price * 100), 2)
+                signal["tp2_possibility"] = round(max(40, 95 - abs(signal["tp2"] - price) / price * 100), 2)
+                signal["tp3_possibility"] = round(max(30, 90 - abs(signal["tp3"] - price) / price * 100), 2)
 
-    return {
-        "symbol": symbol,
-        "price": price,
-        "confidence": confidence,
-        "trade_type": trade_type,
-        "timestamp": latest["timestamp"],
-        "tp1": tp1,
-        "tp2": tp2,
-        "tp3": tp3,
-        "tp1_possibility": tp1_possibility,
-        "tp2_possibility": tp2_possibility,
-        "tp3_possibility": tp3_possibility,
-        "sl": sl,
-        "atr": atr,
-        "leverage": leverage,
-        "support": support,
-        "resistance": resistance,
-        "midpoint": midpoint
-    }
+                log(f"🧠 Final Confidence: {signal['confidence']}%")
+
+                if symbol in sent_signals and time.time() - sent_signals[symbol] < 900:
+                    continue
+
+                log_debug_info(signal)
+                log_signal_to_csv(signal)
+                send_signal(signal)
+                sent_signals[symbol] = time.time()
+
+            except Exception as e:
+                log(f"❌ Error for {symbol}: {e}")
+
+        update_signal_status()
+        time.sleep(120)
