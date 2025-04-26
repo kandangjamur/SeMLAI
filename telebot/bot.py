@@ -15,11 +15,11 @@ def send_signal(signal):
         f"📈 Direction: *{signal['prediction']}*\n"
         f"📊 Type: *{signal['trade_type']}*\n"
         f"📍 Entry: `${signal['price']}`\n"
-        f"🎯 TP1: `${signal['tp1']}` (Possibility: {signal.get('tp1_possibility', 'N/A')}%)\n"
-        f"🎯 TP2: `${signal['tp2']}` (Possibility: {signal.get('tp2_possibility', 'N/A')}%)\n"
-        f"🎯 TP3: `${signal['tp3']}` (Possibility: {signal.get('tp3_possibility', 'N/A')}%)\n"
+        f"🎯 TP1: `${signal['tp1']}` ({signal.get('tp1_possibility', 'N/A')}%)\n"
+        f"🎯 TP2: `${signal['tp2']}` ({signal.get('tp2_possibility', 'N/A')}%)\n"
+        f"🎯 TP3: `${signal['tp3']}` ({signal.get('tp3_possibility', 'N/A')}%)\n"
         f"🛡 SL: `${signal['sl']}`\n"
-        f"⚙️ Leverage: {signal['leverage']}x"
+        f"⚙️ Leverage: *{signal['leverage']}x*"
     )
     bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
 
