@@ -15,7 +15,7 @@ def calculate_indicators(symbol, ohlcv):
     if df.isnull().values.any():
         return None
 
-    # 🧠 Technical Indicators
+    # TA Indicators
     df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
     df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
     df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
@@ -28,9 +28,10 @@ def calculate_indicators(symbol, ohlcv):
     df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
     latest = df.iloc[-1].to_dict()
-    confidence = 0
+    price = latest["close"]
+    atr = latest["atr"]
 
-    # 📊 Scoring logic
+    confidence = 0
     if latest["ema_20"] > latest["ema_50"]:
         confidence += 20
     if latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
@@ -46,31 +47,45 @@ def calculate_indicators(symbol, ohlcv):
     if is_breakout_candle(df):
         confidence += 10
 
-    price = latest["close"]
-    atr = latest["atr"]
+    # S/R + Midpoint
     sr = detect_sr_levels(df)
     support = sr.get("support")
     resistance = sr.get("resistance")
     midpoint = round((support + resistance) / 2, 3) if support and resistance else None
 
-    # 🎯 TP/SL Calculations
-    fib = calculate_fibonacci_levels(price, direction="LONG")
+    # Fibonacci-based TP/SL
+    fib = calculate_fibonacci_levels(price, direction="LONG")  # Direction used in final step
     tp1 = round(fib.get("tp1", price + atr * 1.2), 3)
     tp2 = round(fib.get("tp2", price + atr * 2.5), 3)
     tp3 = round(fib.get("tp3", price + atr * 4.5), 3)
     sl = round(support if support else price - atr * 1.8, 3)
 
-    # 📈 Dynamic TP Possibilities
-    tp1_possibility = round(96 - (abs(tp1 - price) / price * 100), 2)
-    tp2_possibility = round(87 - (abs(tp2 - price) / price * 100), 2)
-    tp3_possibility = round(72 - (abs(tp3 - price) / price * 100), 2)
+    # Dynamic Possibility Calculations
+    pattern_boost = 0
+    if is_bullish_engulfing(df): pattern_boost += 5
+    if is_breakout_candle(df): pattern_boost += 5
+    if latest["macd"] > latest["macd_signal"]: pattern_boost += 5
+    if latest["rsi"] > 60: pattern_boost += 5
+    if pd.notna(latest["adx"]) and latest["adx"] > 25: pattern_boost += 5
 
+    base_strength = confidence + pattern_boost
+
+    tp1_diff = abs(tp1 - price) / price * 100
+    tp2_diff = abs(tp2 - price) / price * 100
+    tp3_diff = abs(tp3 - price) / price * 100
+    volatility_impact = atr / price * 100
+
+    tp1_possibility = round(min(99, base_strength - tp1_diff - volatility_impact), 2)
+    tp2_possibility = round(min(99, base_strength - tp2_diff - volatility_impact * 1.2), 2)
+    tp3_possibility = round(min(99, base_strength - tp3_diff - volatility_impact * 1.5), 2)
+
+    # Trade Type Logic
     if confidence >= 85:
         trade_type = "Normal"
     elif 75 <= confidence < 85:
         trade_type = "Scalping"
     else:
-        return None  # Not strong enough
+        return None  # Low-confidence, skip
 
     leverage = min(max(int(confidence / 2), 3), 50)
 
