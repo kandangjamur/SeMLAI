@@ -1,13 +1,14 @@
 import pandas as pd
 from datetime import datetime
-from utils.logger import log
 from telebot.bot import bot, CHAT_ID
+from utils.logger import log
 
 def generate_daily_summary():
     try:
         df = pd.read_csv("logs/signals_log.csv")
         today = datetime.now().date()
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+
         today_signals = df[df['timestamp'].dt.date == today]
 
         total = len(today_signals)
@@ -17,14 +18,15 @@ def generate_daily_summary():
         sl_hits = len(today_signals[today_signals['status'] == 'sl'])
 
         summary = (
-            f"📊 *Daily Summary ({today})*\n\n"
-            f"📌 Total Signals: {total}\n"
-            f"🎯 TP1 Hits: {tp1_hits}\n"
-            f"🎯 TP2 Hits: {tp2_hits}\n"
-            f"🎯 TP3 Hits: {tp3_hits}\n"
-            f"🛡 SL Hits: {sl_hits}\n"
+            f"📋 *Daily Report*\n\n"
+            f"Total Signals: {total}\n"
+            f"TP1 Hits: {tp1_hits}\n"
+            f"TP2 Hits: {tp2_hits}\n"
+            f"TP3 Hits: {tp3_hits}\n"
+            f"SL Hits: {sl_hits}\n"
         )
+
         bot.send_message(chat_id=CHAT_ID, text=summary, parse_mode="Markdown")
-        log("📬 Daily report sent.")
+        log("📈 Daily Report Sent")
     except Exception as e:
         log(f"❌ Report Error: {e}")
