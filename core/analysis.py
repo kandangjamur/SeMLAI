@@ -1,11 +1,11 @@
 # core/analysis.py
 import time
 import ccxt
+import numpy as np
 from core.indicators import calculate_indicators
 from telebot.bot import send_signal
 from utils.logger import log
 
-# Define the multiple timeframes you want to check
 TIMEFRAMES = ["15m", "1h", "4h", "1d"]
 
 def run_analysis_loop():
@@ -13,7 +13,7 @@ def run_analysis_loop():
 
     exchange = ccxt.binance()
     markets = exchange.load_markets()
-    symbols = [s for s in markets if '/USDT' in s]  # Only USDT pairs
+    symbols = [s for s in markets if '/USDT' in s]
 
     while True:
         try:
@@ -23,7 +23,6 @@ def run_analysis_loop():
                     continue
 
                 timeframe_results = []
-                all_signals = {}
 
                 for tf in TIMEFRAMES:
                     try:
@@ -33,21 +32,22 @@ def run_analysis_loop():
                             continue
 
                         signal = calculate_indicators(symbol, ohlcv)
+
+                        # Validate if indicators are valid
                         if signal:
+                            if np.isnan(signal.get("confidence", 0)) or np.isnan(signal.get("price", 0)):
+                                log(f"⚠️ Skipped {symbol} - Invalid data on {tf}")
+                                continue
+
                             timeframe_results.append(signal)
-                            all_signals[tf] = signal
-                        else:
-                            all_signals[tf] = None
 
                     except Exception as tf_error:
                         log(f"❌ Error fetching {symbol} on {tf}: {tf_error}")
-                        all_signals[tf] = None
 
-                # Decision logic: How many strong timeframes
                 strong_timeframes = [s for s in timeframe_results if s['confidence'] >= 75]
 
                 if len(strong_timeframes) >= 3:
-                    main_signal = strong_timeframes[0]  # Use the first strong one (e.g., 15m)
+                    main_signal = strong_timeframes[0]
 
                     log(f"🚀 Signal for {symbol} | Confidence: {main_signal['confidence']}% | Possibility: {main_signal['possibility']}% | Type: {main_signal['trade_type']} | Leverage: {main_signal['leverage']}x")
                     send_signal(main_signal)
@@ -57,4 +57,4 @@ def run_analysis_loop():
         except Exception as outer_error:
             log(f"❌ Critical error in analysis loop: {outer_error}")
 
-        time.sleep(300)  # Sleep for 5 minutes before next full scan
+        time.sleep(300)
