@@ -1,5 +1,6 @@
 import os
 import telegram
+import random
 from dotenv import load_dotenv
 from core.indicators import calculate_indicators
 from core.multi_timeframe import multi_timeframe_boost
@@ -35,44 +36,77 @@ def calculate_dynamic_possibilities(confidence, distance_tp1, distance_tp2, dist
     
     return tp1_possibility, tp2_possibility, tp3_possibility
 
+def calculate_dynamic_leverage(confidence):
+    if 70 <= confidence < 85:
+        return random.choice(range(20, 31))  # Scalping 20x-30x
+    elif 85 <= confidence <= 100:
+        return random.choice(range(10, 21))  # Normal Trade 10x-20x
+    else:
+        return 10  # fallback (should not happen because we filter below 70)
+
 def generate_trade_signal(symbol, ohlcv, exchange):
-    indicators = calculate_indicators(symbol, ohlcv, exchange)
-    if not indicators:
+    try:
+        indicators = calculate_indicators(symbol, ohlcv, exchange)
+        if not indicators:
+            return None
+
+        confidence = indicators.get("confidence")
+        if confidence is None or confidence < 70:
+            return None  # Discard low-confidence or invalid signals
+
+        price = indicators.get("price")
+        tp1 = indicators.get("tp1")
+        tp2 = indicators.get("tp2")
+        tp3 = indicators.get("tp3")
+        sl = indicators.get("sl")
+
+        # Validate important fields
+        if None in (price, tp1, tp2, tp3, sl):
+            return None
+
+        # Calculate dynamic possibilities
+        distance_tp1 = tp1 - price
+        distance_tp2 = tp2 - price
+        distance_tp3 = tp3 - price
+
+        tp1_possibility, tp2_possibility, tp3_possibility = calculate_dynamic_possibilities(
+            confidence, distance_tp1, distance_tp2, distance_tp3
+        )
+
+        # Trade Type based on confidence
+        if 70 <= confidence < 85:
+            trade_type = "Scalping"
+        else:
+            trade_type = "Normal Trade"
+
+        # Prediction based on direction
+        prediction = "LONG" if confidence >= 85 else "SHORT"
+
+        # Dynamic leverage calculation
+        leverage = indicators.get("leverage")
+        if leverage is None:
+            leverage = calculate_dynamic_leverage(confidence)
+
+        signal = {
+            "symbol": indicators["symbol"],
+            "confidence": confidence,
+            "prediction": prediction,
+            "trade_type": trade_type,
+            "price": price,
+            "tp1": tp1,
+            "tp2": tp2,
+            "tp3": tp3,
+            "sl": sl,
+            "leverage": leverage,
+            "tp1_possibility": round(tp1_possibility, 2),
+            "tp2_possibility": round(tp2_possibility, 2),
+            "tp3_possibility": round(tp3_possibility, 2)
+        }
+        return signal
+
+    except Exception as e:
+        print(f"⚠️ Error generating trade signal for {symbol}: {e}")
         return None
-
-    confidence = indicators["confidence"]
-
-    if confidence < 50:
-        return None  # Discard low-confidence signals
-
-    # Calculate the dynamic possibilities based on confidence and target distances
-    distance_tp1 = indicators["tp1"] - indicators["price"]
-    distance_tp2 = indicators["tp2"] - indicators["price"]
-    distance_tp3 = indicators["tp3"] - indicators["price"]
-    
-    tp1_possibility, tp2_possibility, tp3_possibility = calculate_dynamic_possibilities(
-        confidence, distance_tp1, distance_tp2, distance_tp3
-    )
-
-    # Adding prediction logic
-    prediction = "LONG" if confidence > 75 else "SHORT"  # Predict based on confidence
-
-    signal = {
-        "symbol": indicators["symbol"],
-        "confidence": confidence,
-        "prediction": prediction,  # Direction based on confidence
-        "trade_type": indicators["trade_type"],
-        "price": indicators["price"],
-        "tp1": indicators["tp1"],
-        "tp2": indicators["tp2"],
-        "tp3": indicators["tp3"],
-        "sl": indicators["sl"],
-        "leverage": indicators["leverage"],
-        "tp1_possibility": tp1_possibility,
-        "tp2_possibility": tp2_possibility,
-        "tp3_possibility": tp3_possibility
-    }
-    return signal
 
 def start_telegram_bot():
     print("📲 Telegram Bot Started")
