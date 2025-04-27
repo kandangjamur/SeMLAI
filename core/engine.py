@@ -20,7 +20,25 @@ def log_debug_info(signal):
     log(f"🎯 TP2: {signal['tp2']} ({signal['tp2_possibility']}%)")
     log(f"🎯 TP3: {signal['tp3']} ({signal['tp3_possibility']}%)")
     log(f"🛡 SL: {signal['sl']} | 📍 Entry: {signal['price']}")
-    log(f"Leverage: {signal['leverage']}x | Direction: {signal['prediction']}")
+    log(f"⚙️ Leverage: {signal['leverage']}x | Direction: {signal['prediction']}")
+
+def calculate_possibility(entry, target, atr):
+    if not atr or atr == 0:
+        atr = entry * 0.005  # default if ATR missing (0.5% buffer)
+
+    distance = abs(target - entry)
+    ratio = distance / atr
+
+    if ratio >= 8:
+        return 95
+    elif ratio >= 6:
+        return 85
+    elif ratio >= 4:
+        return 75
+    elif ratio >= 2:
+        return 60
+    else:
+        return 45
 
 def run_analysis_loop():
     log("📊 Starting Market Scan")
@@ -50,9 +68,9 @@ def run_analysis_loop():
                 signal["prediction"] = direction
 
                 price = signal["price"]
+                atr = signal.get("atr", 0)
                 support = signal.get("support")
                 resistance = signal.get("resistance")
-                atr = signal.get("atr", 0)
                 buffer = atr * 1.5 if atr else price * 0.01
 
                 if direction == "LONG":
@@ -75,6 +93,11 @@ def run_analysis_loop():
 
                 if signal["tp2"] - signal["price"] < 0.01:
                     continue
+
+                # ⚡ New: Add Real-Time Possibility %
+                signal["tp1_possibility"] = calculate_possibility(price, signal["tp1"], atr)
+                signal["tp2_possibility"] = calculate_possibility(price, signal["tp2"], atr)
+                signal["tp3_possibility"] = calculate_possibility(price, signal["tp3"], atr)
 
                 log(f"🧠 Final Confidence: {signal['confidence']}%")
 
