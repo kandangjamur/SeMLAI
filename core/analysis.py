@@ -1,61 +1,78 @@
-import time
-import ccxt
-from core.indicators import calculate_indicators
-from core.multi_timeframe import multi_timeframe_boost
-from model.predictor import predict_trend
-from telebot.bot import send_signal
-from utils.logger import log, log_signal_to_csv
-from data.tracker import update_signal_status
+import pandas as pd
+import ta
+from utils.support_resistance import detect_sr_levels
+from utils.fibonacci import calculate_fibonacci_levels
+from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
 
-blacklist = ["BULL", "BEAR", "2X", "3X", "5X", "DOWN", "UP", "ETF"]
-sent_signals = {}
+def calculate_indicators(symbol, ohlcv):
+    if not ohlcv or len(ohlcv) < 50:
+        return None
 
-def is_blacklisted(symbol):
-    return any(term in symbol for term in blacklist)
+    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
 
-def run_analysis_loop():
-    log("📊 Starting Market Scan")
-    exchange = ccxt.binance()
-    markets = exchange.load_markets()
-    symbols = [s for s in markets if "/USDT" in s and not is_blacklisted(s)]
+    df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
+    df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
+    df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+    macd = ta.trend.MACD(df["close"])
+    df["macd"] = macd.macd()
+    df["macd_signal"] = macd.macd_signal()
+    df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
+    df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"]).stochrsi_k()
+    df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"]).adx()
+    df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
-    while True:
-        log("🔁 New Scan Cycle")
-        for symbol in symbols:
-            try:
-                log(f"🔍 Scanning: {symbol}")
-                ohlcv = exchange.fetch_ohlcv(symbol, '15m', limit=100)
-                if not ohlcv or len(ohlcv) < 50:
-                    continue
+    latest = df.iloc[-1].to_dict()
+    confidence = 0
 
-                ticker = exchange.fetch_ticker(symbol)
-                if ticker.get("baseVolume", 0) < 120000:
-                    log(f"⚠️ Skipped {symbol} - Low volume")
-                    continue
+    # Indicator based scoring
+    if latest["ema_20"] > latest["ema_50"]:
+        confidence += 20
+    if latest["rsi"] > 55:
+        confidence += 15
+    if latest["macd"] > latest["macd_signal"]:
+        confidence += 15
+    if latest["adx"] > 20:
+        confidence += 10
+    if latest["stoch_rsi"] < 0.2:
+        confidence += 10
+    if is_bullish_engulfing(df):
+        confidence += 10
+    if is_breakout_candle(df):
+        confidence += 10
 
-                signal = calculate_indicators(symbol, ohlcv)
-                if not signal:
-                    continue
+    price = latest["close"]
+    atr = latest["atr"]
+    sr = detect_sr_levels(df)
+    support = sr.get("support")
+    resistance = sr.get("resistance")
 
-                direction = predict_trend(symbol, ohlcv)
-                signal["prediction"] = direction
+    fib = calculate_fibonacci_levels(price, direction="LONG")
+    tp1 = round(fib.get("tp1", price + atr * 1.5), 3)
+    tp2 = round(fib.get("tp2", price + atr * 2.5), 3)
+    tp3 = round(fib.get("tp3", price + atr * 4), 3)
+    sl = round(support if support else price - atr * 2, 3)
 
-                # Dynamic TP possibility calculation
-                price = signal["price"]
-                signal["tp1_possibility"] = round(max(70, 100 - abs(signal["tp1"] - price) / price * 100), 2)
-                signal["tp2_possibility"] = round(max(60, 95 - abs(signal["tp2"] - price) / price * 100), 2)
-                signal["tp3_possibility"] = round(max(50, 90 - abs(signal["tp3"] - price) / price * 100), 2)
+    if confidence >= 85:
+        trade_type = "Normal"
+    elif 75 <= confidence < 85:
+        trade_type = "Scalping"
+    else:
+        return None
 
-                signal["confidence"] = min(signal["confidence"], 100)
+    leverage = min(max(int(confidence / 2), 3), 50)
 
-                if signal["confidence"] >= 75:
-                    log_signal_to_csv(signal)
-                    send_signal(signal)
-                    sent_signals[symbol] = time.time()
-                    log(f"✅ Signal sent: {symbol} ({signal['confidence']}%)")
-
-            except Exception as e:
-                log(f"❌ Error for {symbol}: {e}")
-
-        update_signal_status()
-        time.sleep(120)
+    return {
+        "symbol": symbol,
+        "price": price,
+        "confidence": confidence,
+        "trade_type": trade_type,
+        "timestamp": latest["timestamp"],
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3": tp3,
+        "sl": sl,
+        "atr": atr,
+        "leverage": leverage,
+        "support": support,
+        "resistance": resistance
+    }
