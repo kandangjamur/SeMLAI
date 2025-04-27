@@ -2,7 +2,7 @@
 import time
 import ccxt
 from core.indicators import calculate_indicators
-from telegram.bot import send_signal
+from telebot.bot import send_signal
 from utils.logger import log
 
 # Define the multiple timeframes you want to check
