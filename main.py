@@ -1,18 +1,39 @@
+# main.py
 import os
 import time
+import threading
 import ccxt
-from core.analysis import calculate_indicators
+from core.analysis import run_analysis_loop
 from core.engine import predict_trend
 from utils.logger import log, log_signal_to_csv
 from telebot.bot import send_signal
 from data.tracker import update_signal_status
+from fastapi import FastAPI
+import uvicorn
 
+# Fake server to keep Koyeb happy
+app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return {"status": "running"}
+
+def start_fake_server():
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# Start fake server in background
+threading.Thread(target=start_fake_server, daemon=True).start()
+
+# Exchange setup
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'future'}
 })
 
-symbols = [s['symbol'] for s in exchange.load_markets().values() if s['quote'] == 'USDT' and not s['symbol'].endswith('UP/USDT') and not s['symbol'].endswith('DOWN/USDT')]
+symbols = [
+    s['symbol'] for s in exchange.load_markets().values()
+    if s['quote'] == 'USDT' and not s['symbol'].endswith('UP/USDT') and not s['symbol'].endswith('DOWN/USDT')
+]
 
 sent_signals = {}
 
@@ -20,8 +41,13 @@ while True:
     log("🔁 New Scan Cycle")
     for symbol in symbols:
         try:
+            if symbol not in exchange.symbols:
+                log(f"⛔ Skipping {symbol} - Symbol not available on Binance")
+                continue
+
             log(f"🔍 Scanning: {symbol}")
             ohlcv = exchange.fetch_ohlcv(symbol, '15m', limit=100)
+
             if not ohlcv or len(ohlcv) < 50:
                 continue
 
@@ -30,7 +56,8 @@ while True:
                 log(f"⚠️ Skipped {symbol} - Low volume")
                 continue
 
-            signal = calculate_indicators(symbol, ohlcv)
+            signal = run_analysis_loop(symbol, ohlcv)
+
             if not signal:
                 continue
 
