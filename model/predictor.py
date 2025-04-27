@@ -4,5 +4,5 @@ def predict_trend(symbol, ohlcv):
         return "LONG"
     elif closes[-1] < closes[-2] < closes[-3]:  # Downtrend
         return "SHORT"
-    else:
-        return None  # Don't return "NEUTRAL", now returning None for no signal
+  
+        
