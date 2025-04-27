@@ -6,6 +6,7 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+
 bot = telegram.Bot(token=BOT_TOKEN)
 
 def send_signal(signal):
@@ -19,9 +20,9 @@ def send_signal(signal):
         f"🎯 TP2: ${signal['tp2']} ({signal['tp2_possibility']}%)\n"
         f"🎯 TP3: ${signal['tp3']} ({signal['tp3_possibility']}%)\n"
         f"🛡 SL: ${signal['sl']}\n"
-        f"⚙️ Leverage: {signal['leverage']}x"
+        f"⚙️ Leverage: {signal['leverage']}x\n"
     )
     bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
 
 def start_telegram_bot():
-    print("📲 Telegram bot started")
+    print("📲 Telegram Bot Started")
