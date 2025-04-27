@@ -29,7 +29,6 @@ def send_signal(signal):
     bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
 
 def calculate_dynamic_possibilities(confidence, distance_tp1, distance_tp2, distance_tp3):
-    # Example calculation for dynamic possibilities based on confidence and distance
     tp1_possibility = min(100, max(50, confidence * (1 - distance_tp1 / 100)))
     tp2_possibility = min(100, max(50, confidence * (1 - distance_tp2 / 100)))
     tp3_possibility = min(100, max(50, confidence * (1 - distance_tp3 / 100)))
@@ -43,7 +42,6 @@ def generate_trade_signal(symbol, ohlcv, exchange):
 
     confidence = indicators["confidence"]
 
-    # Only generate a signal if confidence is above the threshold
     if confidence < 50:
         return None  # Discard low-confidence signals
 
@@ -56,10 +54,9 @@ def generate_trade_signal(symbol, ohlcv, exchange):
         confidence, distance_tp1, distance_tp2, distance_tp3
     )
 
-    # Adding prediction logic (this can be adjusted later if needed)
-    prediction = "LONG" if indicators["confidence"] > 75 else "SHORT"
+    # Adding prediction logic
+    prediction = "LONG" if confidence > 75 else "SHORT"  # Predict based on confidence
 
-    # Return the dynamic signal format with calculated possibilities
     signal = {
         "symbol": indicators["symbol"],
         "confidence": confidence,
@@ -79,7 +76,6 @@ def generate_trade_signal(symbol, ohlcv, exchange):
 
 def start_telegram_bot():
     print("📲 Telegram Bot Started")
-    # Example: You can simulate a signal generation call here
     example_signal = generate_trade_signal('BTC/USDT', [], None)
     if example_signal:
         send_signal(example_signal)
