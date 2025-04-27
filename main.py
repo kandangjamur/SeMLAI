@@ -1,84 +1,58 @@
 import os
 import time
-import pandas as pd
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, PlainTextResponse
-from fastapi.staticfiles import StaticFiles
-from jinja2 import Environment, FileSystemLoader
-from threading import Thread
-from datetime import datetime
-from core.analysis import run_analysis_loop
-from core.news_sentiment import start_sentiment_stream
+import ccxt
+from core.analysis import calculate_indicators
+from core.engine import predict_trend
+from utils.logger import log, log_signal_to_csv
+from telebot.bot import send_signal
 from data.tracker import update_signal_status
-from telebot.bot import start_telegram_bot
-from telebot.report_generator import generate_daily_summary
-from utils.logger import log
 
-app = FastAPI()
+exchange = ccxt.binance({
+    'enableRateLimit': True,
+    'options': {'defaultType': 'future'}
+})
 
-# Setup Jinja2
-templates_dir = os.path.join(os.path.dirname(__file__), "dashboard/templates")
-env = Environment(loader=FileSystemLoader(templates_dir))
+symbols = [s['symbol'] for s in exchange.load_markets().values() if s['quote'] == 'USDT' and not s['symbol'].endswith('UP/USDT') and not s['symbol'].endswith('DOWN/USDT')]
 
-# Ensure static directory exists
-static_dir = os.path.join("dashboard", "static")
-if not os.path.exists(static_dir):
-    os.makedirs(static_dir)
+sent_signals = {}
 
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+while True:
+    log("🔁 New Scan Cycle")
+    for symbol in symbols:
+        try:
+            log(f"🔍 Scanning: {symbol}")
+            ohlcv = exchange.fetch_ohlcv(symbol, '15m', limit=100)
+            if not ohlcv or len(ohlcv) < 50:
+                continue
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
+            ticker = exchange.fetch_ticker(symbol)
+            if ticker.get("baseVolume", 0) < 120000:
+                log(f"⚠️ Skipped {symbol} - Low volume")
+                continue
+
+            signal = calculate_indicators(symbol, ohlcv)
+            if not signal:
+                continue
+
+            direction = predict_trend(symbol, ohlcv)
+            signal["prediction"] = direction
+
+            # Dynamic TP possibilities
+            price = signal["price"]
+            signal["tp1_possibility"] = round(max(70, 100 - abs(signal["tp1"] - price) / price * 100), 2)
+            signal["tp2_possibility"] = round(max(60, 95 - abs(signal["tp2"] - price) / price * 100), 2)
+            signal["tp3_possibility"] = round(max(50, 90 - abs(signal["tp3"] - price) / price * 100), 2)
+
+            signal["confidence"] = min(signal["confidence"], 100)
+
+            if signal["confidence"] >= 75:
+                log_signal_to_csv(signal)
+                send_signal(signal)
+                sent_signals[symbol] = time.time()
+                log(f"✅ Signal sent: {symbol} ({signal['confidence']}%)")
+
+        except Exception as e:
+            log(f"❌ Error for {symbol}: {e}")
+
     update_signal_status()
-    try:
-        df = pd.read_csv("logs/signals_log.csv")
-        df = df.sort_values(by="timestamp", ascending=False)
-
-        # Display dynamic confidence
-        df["confidence"] = df["confidence"].apply(lambda c: f"<span class='badge bg-primary'>{c}%</span>")
-        df["tp1_possibility"] = df["tp1_possibility"].apply(lambda p: f"<span class='badge bg-success'>{p}%</span>")
-        df["tp2_possibility"] = df["tp2_possibility"].apply(lambda p: f"<span class='badge bg-success'>{p}%</span>")
-        df["tp3_possibility"] = df["tp3_possibility"].apply(lambda p: f"<span class='badge bg-success'>{p}%</span>")
-
-        html_table = df.to_html(index=False, classes="table table-striped", escape=False)
-    except Exception as e:
-        html_table = f"<p>Error loading log: {e}</p>"
-
-    template = env.get_template("dashboard.html")
-    return template.render(content=html_table)
-
-@app.get("/health")
-async def health():
-    return PlainTextResponse("OK", status_code=200)
-
-def daily_report_loop():
-    while True:
-        now = datetime.now()
-        if now.hour == 23 and now.minute == 59:
-            generate_daily_summary()
-        time.sleep(60)
-
-def tracker_loop():
-    while True:
-        update_signal_status()
-        time.sleep(600)
-
-def heartbeat():
-    while True:
-        log("❤️ Still alive - Sniper running...")
-        time.sleep(300)
-
-if __name__ == "__main__":
-    log("🚀 Starting Crypto Sniper...")
-    try:
-        Thread(target=start_telegram_bot).start()
-        Thread(target=run_analysis_loop).start()
-        Thread(target=start_sentiment_stream).start()
-        Thread(target=daily_report_loop).start()
-        Thread(target=tracker_loop).start()
-        Thread(target=heartbeat).start()
-
-        import uvicorn
-        uvicorn.run("main:app", host="0.0.0.0", port=8000)
-    except Exception as e:
-        log(f"❌ Main Crash: {e}")
+    time.sleep(120)
