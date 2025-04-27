@@ -1,9 +1,13 @@
 def is_bullish_engulfing(df):
-    c1 = df.iloc[-2]
-    c2 = df.iloc[-1]
-    return c1["close"] < c1["open"] and c2["close"] > c2["open"] and c2["close"] > c1["open"] and c2["open"] < c1["close"]
+    if len(df) < 2:
+        return False
+    prev = df.iloc[-2]
+    curr = df.iloc[-1]
+    return prev['close'] < prev['open'] and curr['close'] > curr['open'] and curr['close'] > prev['open'] and curr['open'] < prev['close']
 
 def is_breakout_candle(df):
-    last_candle = df.iloc[-1]
-    prev_high = df["high"][:-1].max()
-    return last_candle["close"] > prev_high
+    if len(df) < 10:
+        return False
+    recent_high = df['high'].iloc[-10:-1].max()
+    last_close = df['close'].iloc[-1]
+    return last_close > recent_high
