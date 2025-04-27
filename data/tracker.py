@@ -1,14 +1,18 @@
+import os
 import pandas as pd
 import ccxt
 from utils.logger import log
 
 def update_signal_status():
     try:
+        if not os.path.exists("logs/signals_log.csv"):
+            return
+
         df = pd.read_csv("logs/signals_log.csv")
         exchange = ccxt.binance()
         updated = False
 
-        for index, row in df.iterrows():
+        for idx, row in df.iterrows():
             if row["status"] != "pending":
                 continue
 
@@ -16,21 +20,21 @@ def update_signal_status():
             high = ticker.get("high", 0)
             low = ticker.get("low", 0)
 
-            if row["tp3"] <= high:
-                df.at[index, "status"] = "tp3"
+            if high >= row["tp3"]:
+                df.at[idx, "status"] = "tp3"
                 updated = True
-            elif row["tp2"] <= high:
-                df.at[index, "status"] = "tp2"
+            elif high >= row["tp2"]:
+                df.at[idx, "status"] = "tp2"
                 updated = True
-            elif row["tp1"] <= high:
-                df.at[index, "status"] = "tp1"
+            elif high >= row["tp1"]:
+                df.at[idx, "status"] = "tp1"
                 updated = True
-            elif row["sl"] >= low:
-                df.at[index, "status"] = "sl"
+            elif low <= row["sl"]:
+                df.at[idx, "status"] = "sl"
                 updated = True
 
         if updated:
             df.to_csv("logs/signals_log.csv", index=False)
-            log("📈 Signal status updated.")
+            log("✅ Tracker Updated")
     except Exception as e:
         log(f"❌ Tracker Error: {e}")
