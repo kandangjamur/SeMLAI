@@ -82,3 +82,62 @@ def calculate_indicators(symbol, ohlcv):
         "resistance": resistance,
         "midpoint": midpoint
     }
+
+def calculate_dynamic_possibilities(confidence, distance_tp1, distance_tp2, distance_tp3):
+    # Dynamic calculation based on confidence
+    tp1_possibility = min(100, max(50, confidence * (1 - distance_tp1 / 100)))
+    tp2_possibility = min(100, max(50, confidence * (1 - distance_tp2 / 100)))
+    tp3_possibility = min(100, max(50, confidence * (1 - distance_tp3 / 100)))
+    
+    return tp1_possibility, tp2_possibility, tp3_possibility
+
+def predict_trend(symbol, ohlcv):
+    closes = [c[4] for c in ohlcv]
+    # Predict based on the trend
+    if closes[-1] > closes[-2] > closes[-3]:
+        return "LONG"
+    elif closes[-1] < closes[-2] < closes[-3]:
+        return "SHORT"
+    return "NEUTRAL"  # Remove Neutral in the prediction logic if you want to ensure long/short only
+
+def generate_trade_signal(symbol, ohlcv, exchange):
+    indicators = calculate_indicators(symbol, ohlcv)
+    if not indicators:
+        return None
+
+    confidence = indicators["confidence"]
+
+    if confidence < 50:
+        return None  # Discard low-confidence signals
+
+    # Calculate dynamic possibilities
+    distance_tp1 = indicators["tp1"] - indicators["price"]
+    distance_tp2 = indicators["tp2"] - indicators["price"]
+    distance_tp3 = indicators["tp3"] - indicators["price"]
+    
+    tp1_possibility, tp2_possibility, tp3_possibility = calculate_dynamic_possibilities(
+        confidence, distance_tp1, distance_tp2, distance_tp3
+    )
+
+    # Prediction now based on the dynamic conditions
+    prediction = predict_trend(symbol, ohlcv)
+    if prediction == "NEUTRAL":
+        return None  # Avoid sending neutral signals
+
+    # Return the dynamic signal format
+    signal = {
+        "symbol": indicators["symbol"],
+        "confidence": confidence,
+        "prediction": prediction,  # Direction based on trend
+        "trade_type": indicators["trade_type"],
+        "price": indicators["price"],
+        "tp1": indicators["tp1"],
+        "tp2": indicators["tp2"],
+        "tp3": indicators["tp3"],
+        "sl": indicators["sl"],
+        "leverage": indicators["leverage"],
+        "tp1_possibility": tp1_possibility,
+        "tp2_possibility": tp2_possibility,
+        "tp3_possibility": tp3_possibility
+    }
+    return signal
