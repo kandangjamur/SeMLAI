@@ -1,9 +1,14 @@
+# core/indicators.py
 import pandas as pd
 import ta
 
-def calculate_indicators(df):
-    """Calculates various indicators used for technical analysis."""
-    # Calculating EMA, RSI, MACD, ATR, etc.
+def calculate_indicators(symbol, ohlcv):
+    if not ohlcv or len(ohlcv) < 50:
+        return None
+
+    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+
+    # Calculating technical indicators
     df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
     df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
     df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
@@ -14,22 +19,54 @@ def calculate_indicators(df):
     df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"]).adx()
     df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
-    return df
-
-def get_indicator_values(df):
-    """Extracts the latest indicator values."""
     latest = df.iloc[-1].to_dict()
 
-    indicators = {
-        "ema_20": latest["ema_20"],
-        "ema_50": latest["ema_50"],
-        "rsi": latest["rsi"],
-        "macd": latest["macd"],
-        "macd_signal": latest["macd_signal"],
-        "atr": latest["atr"],
-        "stoch_rsi": latest["stoch_rsi"],
-        "adx": latest["adx"],
-        "volume_sma": latest["volume_sma"]
-    }
+    confidence = 0
 
-    return indicators
+    # Scoring based on indicators
+    if latest["ema_20"] > latest["ema_50"]:
+        confidence += 20
+    if latest["rsi"] > 55:
+        confidence += 15
+    if latest["macd"] > latest["macd_signal"]:
+        confidence += 15
+    if latest["adx"] > 20:
+        confidence += 10
+    if latest["stoch_rsi"] < 0.2:
+        confidence += 10
+
+    price = latest["close"]
+    atr = latest["atr"]
+
+    # Simple Fibonacci-style TP & SL (can be improved with support/resistance)
+    tp1 = round(price + atr * 1.5, 3)
+    tp2 = round(price + atr * 2.5, 3)
+    tp3 = round(price + atr * 4, 3)
+    sl = round(price - atr * 2, 3)
+
+    if confidence >= 85:
+        trade_type = "Normal"
+    elif 75 <= confidence < 85:
+        trade_type = "Scalping"
+    else:
+        return None
+
+    leverage = min(max(int(confidence / 2), 3), 50)
+
+    # Dynamic Possibility Calculation
+    possibility = min(confidence + 5, 99)
+
+    return {
+        "symbol": symbol,
+        "price": price,
+        "confidence": confidence,
+        "trade_type": trade_type,
+        "timestamp": latest["timestamp"],
+        "tp1": tp1,
+        "tp2": tp2,
+        "tp3": tp3,
+        "sl": sl,
+        "atr": atr,
+        "leverage": leverage,
+        "possibility": possibility
+    }
