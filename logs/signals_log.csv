@@ -1,2 +1,1 @@
-timestamp	symbol	price	confidence	trade_type	tp1	tp2	tp3	sl
-
+symbol,price,confidence,trade_type,timestamp,tp1,tp2,tp3,sl,atr,leverage,support,resistance,midpoint,prediction,tp1_possibility,tp2_possibility,tp3_possibility,status
