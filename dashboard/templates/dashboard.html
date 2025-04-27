@@ -12,6 +12,37 @@
 </head>
 <body>
     <h2>📊 Crypto Sniper Dashboard</h2>
-    {{ content | safe }}
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Timestamp</th>
+                <th>Symbol</th>
+                <th>Confidence</th>
+                <th>Prediction</th>
+                <th>Price</th>
+                <th>TP1</th>
+                <th>TP2</th>
+                <th>TP3</th>
+                <th>SL</th>
+                <th>Leverage</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for signal in signals %}
+            <tr>
+                <td>{{ signal.timestamp }}</td>
+                <td>{{ signal.symbol }}</td>
+                <td>{{ signal.confidence }}</td>
+                <td>{{ signal.direction }}</td>
+                <td>${{ signal.price }}</td>
+                <td>${{ signal.tp1 }}</td>
+                <td>${{ signal.tp2 }}</td>
+                <td>${{ signal.tp3 }}</td>
+                <td>${{ signal.sl }}</td>
+                <td>{{ signal.leverage }}x</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </body>
 </html>
