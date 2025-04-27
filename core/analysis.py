@@ -8,7 +8,7 @@ from utils.logger import log
 
 TIMEFRAMES = ["15m", "1h", "4h", "1d"]
 
-def run_analysis_loop():
+def run_analysis_loop(symbol, timeframe):
     log("📊 Starting Multi-Timeframe Market Scan...")
 
     exchange = ccxt.binance()
