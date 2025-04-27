@@ -2,36 +2,35 @@ import os
 import pandas as pd
 from datetime import datetime
 
-log_path = "logs"
-log_file = os.path.join(log_path, "signals_log.csv")
-
-if not os.path.exists(log_path):
-    os.makedirs(log_path)
-
 def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
 
 def log_signal_to_csv(signal):
-    row = {
-        "timestamp": signal["timestamp"],
-        "symbol": signal["symbol"],
-        "confidence": signal["confidence"],
-        "trade_type": signal["trade_type"],
-        "direction": signal["prediction"],
-        "price": signal["price"],
-        "tp1": signal["tp1"],
-        "tp2": signal["tp2"],
-        "tp3": signal["tp3"],
-        "sl": signal["sl"],
-        "leverage": signal["leverage"],
-        "status": "pending"
+    filename = "logs/signals_log.csv"
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+
+    data = {
+        "timestamp": [signal['timestamp']],
+        "symbol": [signal['symbol']],
+        "price": [signal['price']],
+        "confidence": [signal['confidence']],
+        "tp1": [signal['tp1']],
+        "tp2": [signal['tp2']],
+        "tp3": [signal['tp3']],
+        "sl": [signal['sl']],
+        "type": [signal['trade_type']],
+        "direction": [signal['prediction']],
+        "leverage": [signal['leverage']],
+        "tp1_possibility": [signal.get('tp1_possibility', 0)],
+        "tp2_possibility": [signal.get('tp2_possibility', 0)],
+        "tp3_possibility": [signal.get('tp3_possibility', 0)],
+        "status": ["pending"]
     }
-    try:
-        df = pd.DataFrame([row])
-        if os.path.exists(log_file):
-            df.to_csv(log_file, mode='a', header=False, index=False)
-        else:
-            df.to_csv(log_file, index=False)
-        log(f"📥 Signal logged to CSV: {signal['symbol']}")
-    except Exception as e:
-        log(f"❌ CSV Logging Error: {e}")
+
+    if os.path.exists(filename):
+        df = pd.read_csv(filename)
+        df = pd.concat([df, pd.DataFrame(data)], ignore_index=True)
+    else:
+        df = pd.DataFrame(data)
+
+    df.to_csv(filename, index=False)
