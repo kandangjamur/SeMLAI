@@ -1,6 +1,9 @@
-def classify_trade_type(confidence):
-    if confidence >= 90:
+# core/trade_classifier.py
+
+def classify_trade(confidence):
+    if confidence >= 80:
         return "Normal"
-    elif confidence >= 85:
+    elif 70 <= confidence < 80:
         return "Scalping"
-    return None
+    else:
+        return None  # Ignore low-confidence signals
