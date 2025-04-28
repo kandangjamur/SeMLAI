@@ -1,4 +1,3 @@
-# utils/fibonacci.py
 def calculate_fibonacci_levels(price, direction="LONG"):
     levels = {}
     if direction == "LONG":
