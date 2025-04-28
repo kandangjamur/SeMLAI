@@ -1,4 +1,3 @@
-# core/indicators.py
 import pandas as pd
 import ta
 from utils.support_resistance import detect_sr_levels
@@ -23,7 +22,6 @@ def calculate_indicators(symbol, ohlcv):
         df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
         latest = df.iloc[-1]
-
         confidence = 0
         if latest["ema_20"] > latest["ema_50"]:
             confidence += 20
@@ -52,12 +50,7 @@ def calculate_indicators(symbol, ohlcv):
         resistance = sr.get("resistance")
 
         sl = round(support if support else price - atr * 2, 3)
-
         trade_type = "Normal" if confidence >= 85 else "Scalping"
-
-        leverage = 20  # Placeholder, updated dynamically later in main.py
-
-        possibility = min(confidence + 5, 99)
 
         return {
             "symbol": symbol,
@@ -70,12 +63,11 @@ def calculate_indicators(symbol, ohlcv):
             "tp3": tp3,
             "sl": sl,
             "atr": atr,
-            "leverage": leverage,
+            "leverage": 20,
             "support": support,
             "resistance": resistance,
-            "possibility": possibility,
+            "possibility": min(confidence + 5, 99),
         }
-
     except Exception as e:
-        print(f"❌ Indicator calc error {symbol}: {e}")
+        print(f"❌ Error indicators {symbol}: {e}")
         return None
