@@ -1,60 +1,38 @@
 # core/analysis.py
 import time
-import ccxt
 import numpy as np
 from core.indicators import calculate_indicators
-from telebot.bot import send_signal
 from utils.logger import log
 
 TIMEFRAMES = ["15m", "1h", "4h", "1d"]
 
-def run_analysis_loop(symbol, timeframe):
-    log("📊 Starting Multi-Timeframe Market Scan...")
-
-    exchange = ccxt.binance()
-    markets = exchange.load_markets()
-    symbols = [s for s in markets if '/USDT' in s]
-
-    while True:
-        try:
-            for symbol in symbols:
-                if symbol not in exchange.symbols:
-                    log(f"⛔ Skipping {symbol} - Symbol not available on Binance")
+def multi_timeframe_analysis(symbol, exchange):
+    timeframe_results = []
+    try:
+        for tf in TIMEFRAMES:
+            try:
+                ohlcv = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
+                if not ohlcv or len(ohlcv) < 50:
+                    log(f"⚠️ Skipping {symbol} on {tf} - insufficient data")
                     continue
 
-                timeframe_results = []
+                signal = calculate_indicators(symbol, ohlcv)
+                if signal and not np.isnan(signal.get('confidence', 0)) and not np.isnan(signal.get('price', 0)):
+                    timeframe_results.append(signal)
 
-                for tf in TIMEFRAMES:
-                    try:
-                        ohlcv = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
-                        if not ohlcv or len(ohlcv) < 50:
-                            log(f"⚠️ No sufficient data for {symbol} on {tf}")
-                            continue
+            except Exception as tf_error:
+                log(f"❌ Error fetching {symbol} {tf}: {tf_error}")
 
-                        signal = calculate_indicators(symbol, ohlcv)
+        strong_signals = [s for s in timeframe_results if s['confidence'] >= 75]
 
-                        # Validate if indicators are valid
-                        if signal:
-                            if np.isnan(signal.get("confidence", 0)) or np.isnan(signal.get("price", 0)):
-                                log(f"⚠️ Skipped {symbol} - Invalid data on {tf}")
-                                continue
+        if len(strong_signals) >= 3:
+            main_signal = strong_signals[0]
+            return main_signal
 
-                            timeframe_results.append(signal)
+        else:
+            log(f"⏭️ Skipping {symbol} - Not enough confirmations ({len(strong_signals)}/4)")
+            return None
 
-                    except Exception as tf_error:
-                        log(f"❌ Error fetching {symbol} on {tf}: {tf_error}")
-
-                strong_timeframes = [s for s in timeframe_results if s['confidence'] >= 75]
-
-                if len(strong_timeframes) >= 3:
-                    main_signal = strong_timeframes[0]
-
-                    log(f"🚀 Signal for {symbol} | Confidence: {main_signal['confidence']}% | Possibility: {main_signal['possibility']}% | Type: {main_signal['trade_type']} | Leverage: {main_signal['leverage']}x")
-                    send_signal(main_signal)
-                else:
-                    log(f"⏭️ Skipped {symbol} - Not enough strong confirmations ({len(strong_timeframes)}/4)")
-
-        except Exception as outer_error:
-            log(f"❌ Critical error in analysis loop: {outer_error}")
-
-        time.sleep(300)
+    except Exception as e:
+        log(f"❌ Critical analysis error for {symbol}: {e}")
+        return None
