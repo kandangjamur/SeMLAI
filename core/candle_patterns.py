@@ -1,13 +1,14 @@
+# core/candle_patterns.py
 def is_bullish_engulfing(df):
     if len(df) < 2:
         return False
-    last_candle = df.iloc[-1]
-    prev_candle = df.iloc[-2]
-    return last_candle["close"] > last_candle["open"] and prev_candle["close"] < prev_candle["open"]
+    prev = df.iloc[-2]
+    curr = df.iloc[-1]
+    return prev["close"] < prev["open"] and curr["close"] > curr["open"] and curr["close"] > prev["open"]
 
 def is_breakout_candle(df):
     if len(df) < 2:
         return False
-    last_candle = df.iloc[-1]
-    prev_candle = df.iloc[-2]
-    return last_candle["high"] > prev_candle["high"] and last_candle["low"] > prev_candle["low"]
+    prev = df.iloc[-2]
+    curr = df.iloc[-1]
+    return curr["high"] > prev["high"] and curr["close"] > prev["close"]
