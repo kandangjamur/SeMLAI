@@ -4,7 +4,7 @@ import time
 import threading
 import ccxt
 import numpy as np
-from core.indicators import calculate_indicators
+from core.analysis import multi_timeframe_analysis
 from core.engine import predict_trend
 from utils.logger import log, log_signal_to_csv
 from telebot.bot import send_signal
@@ -12,7 +12,7 @@ from data.tracker import update_signal_status
 from fastapi import FastAPI
 import uvicorn
 
-# Fake server to keep Koyeb happy
+# Fake server for Koyeb
 app = FastAPI()
 
 @app.get("/")
@@ -20,89 +20,70 @@ def read_root():
     return {"status": "running"}
 
 def start_fake_server():
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
 
-# Start server in background
 threading.Thread(target=start_fake_server, daemon=True).start()
 
-# Exchange setup
+# Setup exchange
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'future'}
 })
 
-# Timeframes to check
-TIMEFRAMES = ["15m", "1h", "4h", "1d"]
-
-# Get all USDT pairs
+markets = exchange.load_markets()
 symbols = [
-    s['symbol'] for s in exchange.load_markets().values()
-    if s['quote'] == 'USDT' and not s['symbol'].endswith('UP/USDT') and not s['symbol'].endswith('DOWN/USDT')
+    s['symbol'] for s in markets.values()
+    if s['quote'] == 'USDT' and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
 ]
 
 sent_signals = {}
+MIN_VOLUME = 1000000  # 1M USDT
 
 while True:
-    log("🔁 New Scan Cycle")
+    log("🔁 New Scan Cycle Started")
     for symbol in symbols:
         try:
             if symbol not in exchange.symbols:
-                log(f"⛔ Skipping {symbol} - Symbol not available on Binance")
+                log(f"⛔ {symbol} not found on exchange. Skipping.")
                 continue
 
-            log(f"🔍 Scanning: {symbol}")
             ticker = exchange.fetch_ticker(symbol)
-            if ticker.get("baseVolume", 0) < 120000:
-                log(f"⚠️ Skipped {symbol} - Low volume")
+            if ticker.get("baseVolume", 0) < MIN_VOLUME:
+                log(f"⚠️ {symbol} skipped due to low volume ({ticker.get('baseVolume', 0)})")
                 continue
 
-            timeframe_results = []
+            result = multi_timeframe_analysis(symbol, exchange)
+            if not result:
+                continue
 
-            for tf in TIMEFRAMES:
-                try:
-                    ohlcv = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
-                    if not ohlcv or len(ohlcv) < 50:
-                        log(f"⚠️ Insufficient data for {symbol} on {tf}")
-                        continue
+            signal = result
+            signal['prediction'] = predict_trend(symbol, exchange)
 
-                    signal = calculate_indicators(symbol, ohlcv)
+            if signal["prediction"] not in ["LONG", "SHORT"]:
+                log(f"⚠️ {symbol} has no strong direction. Skipping.")
+                continue
 
-                    if signal:
-                        if np.isnan(signal.get("confidence", 0)) or np.isnan(signal.get("price", 0)):
-                            log(f"⚠️ Skipped {symbol} invalid data on {tf}")
-                            continue
+            # Real leverage limit fetch
+            try:
+                leverage_info = exchange.fetch_leverage_tiers(symbol)
+                max_leverage = leverage_info[symbol][0]['maxLeverage']
+                signal["leverage"] = int(min(max_leverage, signal.get("leverage", 20)))
+            except Exception:
+                signal["leverage"] = 20
 
-                        timeframe_results.append(signal)
+            price = signal["price"]
+            signal["tp1_possibility"] = round(max(70, 100 - abs(signal["tp1"] - price) / price * 100), 2)
+            signal["tp2_possibility"] = round(max(60, 95 - abs(signal["tp2"] - price) / price * 100), 2)
+            signal["tp3_possibility"] = round(max(50, 90 - abs(signal["tp3"] - price) / price * 100), 2)
 
-                except Exception as tf_error:
-                    log(f"❌ Error fetching {symbol} on {tf}: {tf_error}")
+            log_signal_to_csv(signal)
+            send_signal(signal)
+            sent_signals[symbol] = time.time()
 
-            # Now check how many timeframes are strong
-            strong_timeframes = [s for s in timeframe_results if s['confidence'] >= 75]
-
-            if len(strong_timeframes) >= 3:
-                main_signal = strong_timeframes[0]  # pick the first strong timeframe
-
-                direction = predict_trend(symbol, ohlcv)
-                main_signal["prediction"] = direction
-
-                price = main_signal["price"]
-                main_signal["tp1_possibility"] = round(max(70, 100 - abs(main_signal["tp1"] - price) / price * 100), 2)
-                main_signal["tp2_possibility"] = round(max(60, 95 - abs(main_signal["tp2"] - price) / price * 100), 2)
-                main_signal["tp3_possibility"] = round(max(50, 90 - abs(main_signal["tp3"] - price) / price * 100), 2)
-
-                main_signal["confidence"] = min(main_signal["confidence"], 100)
-
-                log_signal_to_csv(main_signal)
-                send_signal(main_signal)
-                sent_signals[symbol] = time.time()
-                log(f"✅ Signal sent: {symbol} ({main_signal['confidence']}%)")
-
-            else:
-                log(f"⏭️ Skipped {symbol} - Not enough confirmations ({len(strong_timeframes)}/4)")
+            log(f"✅ Signal Sent: {symbol} | {signal['trade_type']} | {signal['confidence']}% confidence")
 
         except Exception as e:
-            log(f"❌ Error for {symbol}: {e}")
+            log(f"❌ Error with {symbol}: {e}")
 
     update_signal_status()
     time.sleep(120)
