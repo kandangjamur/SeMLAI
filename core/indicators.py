@@ -6,13 +6,11 @@ from utils.fibonacci import calculate_fibonacci_levels
 from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
 
 def calculate_indicators(symbol, ohlcv):
-    if not ohlcv or len(ohlcv) < 50:
-        return None
-
-    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-
     try:
-        # Adding technical indicators
+        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        if df["close"].isnull().mean() > 0.1:
+            return None
+
         df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
         df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
         df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
@@ -24,11 +22,9 @@ def calculate_indicators(symbol, ohlcv):
         df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"]).adx()
         df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
-        latest = df.iloc[-1].to_dict()
+        latest = df.iloc[-1]
 
-        # Confidence calculation
         confidence = 0
-
         if latest["ema_20"] > latest["ema_50"]:
             confidence += 20
         if latest["rsi"] > 55:
@@ -46,8 +42,6 @@ def calculate_indicators(symbol, ohlcv):
 
         price = latest["close"]
         atr = latest["atr"]
-
-        # Fibonacci levels for target prices
         fib = calculate_fibonacci_levels(price, direction="LONG")
         tp1 = round(fib.get("tp1", price + atr * 1.5), 3)
         tp2 = round(fib.get("tp2", price + atr * 2.5), 3)
@@ -59,19 +53,11 @@ def calculate_indicators(symbol, ohlcv):
 
         sl = round(support if support else price - atr * 2, 3)
 
-        # Setting trade type
-        if confidence >= 85:
-            trade_type = "Normal"
-        elif 75 <= confidence < 85:
-            trade_type = "Scalping"
-        else:
-            return None  # Weak signal, ignore
+        trade_type = "Normal" if confidence >= 85 else "Scalping"
 
-        # Leverage calculation
-        leverage = min(max(int(confidence / 2), 3), 50)
+        leverage = 20  # Placeholder, updated dynamically later in main.py
 
-        # Dynamic Possibility % calculation
-        possibility = min(confidence + 5, 99)  # Adding small margin based on multi-confirmations
+        possibility = min(confidence + 5, 99)
 
         return {
             "symbol": symbol,
@@ -87,9 +73,9 @@ def calculate_indicators(symbol, ohlcv):
             "leverage": leverage,
             "support": support,
             "resistance": resistance,
-            "possibility": possibility
+            "possibility": possibility,
         }
 
     except Exception as e:
-        print(f"❌ Error calculating indicators for {symbol}: {e}")
+        print(f"❌ Indicator calc error {symbol}: {e}")
         return None
