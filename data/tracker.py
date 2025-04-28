@@ -1,3 +1,4 @@
+# data/tracker.py
 import pandas as pd
 import os
 
@@ -6,5 +7,4 @@ def update_signal_status():
     if not os.path.exists(filename):
         return
     df = pd.read_csv(filename)
-    # You can add status update logic here if needed later
     df.to_csv(filename, index=False)
