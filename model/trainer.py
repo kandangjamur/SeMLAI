@@ -15,7 +15,6 @@ def extract_features(data):
 def prepare_dataset():
     path = "data/historical"
     X, y = [], []
-
     for file in os.listdir(path):
         if file.endswith(".json"):
             with open(os.path.join(path, file)) as f:
@@ -24,8 +23,7 @@ def prepare_dataset():
             if len(candles) > 20:
                 features = extract_features(candles)
                 X.extend(features.values)
-                y.extend([1 if row[0] > 0 else 0 for row in features.values])  # 1 = bullish, 0 = bearish
-
+                y.extend([1 if row[0] > 0 else 0 for row in features.values])
     return pd.DataFrame(X), y
 
 def train_classifier():
@@ -33,7 +31,7 @@ def train_classifier():
     model = RandomForestClassifier(n_estimators=100, random_state=42)
     model.fit(X, y)
     joblib.dump(model, "model/trend_model.pkl")
-    print("✅ Model trained and saved as trend_model.pkl")
+    print("✅ Model trained and saved!")
 
 if __name__ == "__main__":
     train_classifier()
