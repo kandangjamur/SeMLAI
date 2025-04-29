@@ -1,9 +1,10 @@
+import logging
 import os
 import pandas as pd
 from datetime import datetime
 
 def log(msg):
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+    logging.info(msg)
 
 def log_signal_to_csv(signal):
     filename = "logs/signals_log.csv"
@@ -32,3 +33,14 @@ def log_signal_to_csv(signal):
         df = pd.concat([old_df, df], ignore_index=True)
 
     df.to_csv(filename, index=False)
+    log(f"📝 Signal logged to CSV for {signal['symbol']}")
+
+# لاگنگ سیٹ اپ
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("logs/app.log"),
+        logging.StreamHandler()
+    ]
+)
