@@ -12,7 +12,6 @@ from fastapi import FastAPI, StaticFiles, JSONResponse
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 import uvicorn
-from starlette.requests import Request
 import logging
 import sys
 
@@ -30,16 +29,14 @@ templates = Jinja2Templates(directory="dashboard/templates")
 
 @app.get("/health")
 async def health_check():
-    crash_logger.info("Health check endpoint accessed")
     return JSONResponse({"status": "healthy"})
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
-    crash_logger.info("Root endpoint accessed")
     signals = []
     try:
         with open("logs/signals_log.csv", "r") as file:
-            lines = file.readlines()
+            lines = file.readlines()[-50:]  # آخری 50 سگنلز
             for line in lines[1:]:
                 parts = line.strip().split(",")
                 if len(parts) >= 10:
@@ -60,7 +57,6 @@ async def read_root(request: Request):
                     })
     except Exception as e:
         log(f"❌ Error reading signals log: {e}")
-        crash_logger.error(f"Error reading signals log: {e}")
     return templates.TemplateResponse("dashboard.html", {"request": request, "signals": signals})
 
 crash_logger.info("Starting application")
@@ -98,7 +94,7 @@ try:
         if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
         and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
         and s.get('info', {}).get('volume', 0) > 1000000
-    ][:30]  # ٹاپ 30 سمبلز تک محدود
+    ][:15]  # ٹاپ 15 سمبلز
     log(f"✅ Loaded {len(symbols)} USDT symbols")
     crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
 except Exception as e:
@@ -116,6 +112,7 @@ while True:
     crash_logger.info("New scan cycle started")
     for symbol in symbols:
         try:
+            time.sleep(0.5)  # ہر سمبل کے درمیان 0.5 سیکنڈ وقفہ
             if symbol not in exchange.symbols:
                 log(f"⚠️ Symbol {symbol} not found in exchange")
                 crash_logger.warning(f"Symbol {symbol} not found in exchange")
@@ -140,13 +137,7 @@ while True:
                 crash_logger.warning(f"Invalid prediction for {symbol}: {signal['prediction']}")
                 continue
 
-            try:
-                leverage_info = exchange.fetch_leverage_tiers(symbol)
-                signal["leverage"] = int(min(leverage_info[symbol][0]['maxLeverage'], signal.get("leverage", 20)))
-            except Exception as e:
-                log(f"⚠️ Leverage fetch failed for {symbol}: {e}")
-                crash_logger.warning(f"Leverage fetch failed for {symbol}: {e}")
-                signal["leverage"] = 20
+            signal["leverage"] = 10  # ڈیفالٹ لیوریج
 
             price = signal["price"]
             signal["tp1_possibility"] = round(max(70, 100 - abs(signal["tp1"] - price) / price * 100) if price != 0 else 70, 2)
@@ -165,4 +156,4 @@ while True:
             continue
 
     update_signal_status()
-    time.sleep(120)
+    time.sleep(300)  # 5 منٹ کا وقفہ
