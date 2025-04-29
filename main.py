@@ -23,6 +23,7 @@ def start_fake_server():
 
 threading.Thread(target=start_fake_server, daemon=True).start()
 
+# Setup exchange
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'future'}
@@ -42,12 +43,12 @@ while True:
     for symbol in symbols:
         try:
             if symbol not in exchange.symbols:
-                log(f"⛔ {symbol} not found. Skipping.")
+                log(f"⛔ {symbol} not found on exchange. Skipping.")
                 continue
 
             ticker = exchange.fetch_ticker(symbol)
             if ticker.get("baseVolume", 0) < MIN_VOLUME:
-                log(f"⚠️ Skipped {symbol} due to low volume ({ticker.get('baseVolume', 0)})")
+                log(f"⚠️ {symbol} skipped due to low volume ({ticker.get('baseVolume', 0)})")
                 continue
 
             result = multi_timeframe_analysis(symbol, exchange)
@@ -55,12 +56,13 @@ while True:
                 continue
 
             signal = result
-            signal['prediction'] = predict_trend(symbol, exchange.fetch_ohlcv(symbol, '15m', limit=50))
+            signal['prediction'] = predict_trend(symbol, exchange)
 
             if signal["prediction"] not in ["LONG", "SHORT"]:
-                log(f"⚠️ {symbol} no strong direction. Skipping.")
+                log(f"⚠️ {symbol} has no strong direction. Skipping.")
                 continue
 
+            # Real leverage limit fetch
             try:
                 leverage_info = exchange.fetch_leverage_tiers(symbol)
                 max_leverage = leverage_info[symbol][0]['maxLeverage']
