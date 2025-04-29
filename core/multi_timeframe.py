@@ -1,17 +1,20 @@
+# core/multi_timeframe.py
 import ccxt
 
 def multi_timeframe_boost(symbol, exchange, direction):
     boost = 0
     try:
-        tf_list = ["1h", "4h", "1d"]
-        for tf in tf_list:
-            candles = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
-            if not candles:
+        timeframes = ["15min","1h", "4h", "1d"]
+        for tf in timeframes:
+            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=50)
+            if not ohlcv:
                 continue
-            closes = [x[4] for x in candles]
-            if direction == "LONG" and closes[-1] > sum(closes[-20:]) / 20:
+            closes = [c[4] for c in ohlcv]
+            avg_close = sum(closes[-20:]) / 20
+
+            if direction == "LONG" and closes[-1] > avg_close:
                 boost += 5
-            elif direction == "SHORT" and closes[-1] < sum(closes[-20:]) / 20:
+            elif direction == "SHORT" and closes[-1] < avg_close:
                 boost += 5
     except Exception:
         pass
