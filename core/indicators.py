@@ -19,9 +19,9 @@ def calculate_indicators(symbol, ohlcv):
         df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
         df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"]).stochrsi_k()
         df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"]).adx()
-        df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
         latest = df.iloc[-1]
+
         confidence = 0
         if latest["ema_20"] > latest["ema_50"]:
             confidence += 20
@@ -50,7 +50,12 @@ def calculate_indicators(symbol, ohlcv):
         resistance = sr.get("resistance")
 
         sl = round(support if support else price - atr * 2, 3)
+
         trade_type = "Normal" if confidence >= 85 else "Scalping"
+
+        leverage = 20  # Placeholder, will override from real leverage check
+
+        possibility = min(confidence + 5, 99)
 
         return {
             "symbol": symbol,
@@ -63,11 +68,12 @@ def calculate_indicators(symbol, ohlcv):
             "tp3": tp3,
             "sl": sl,
             "atr": atr,
-            "leverage": 20,
+            "leverage": leverage,
             "support": support,
             "resistance": resistance,
-            "possibility": min(confidence + 5, 99),
+            "possibility": possibility
         }
+
     except Exception as e:
-        print(f"❌ Error indicators {symbol}: {e}")
+        print(f"❌ Indicator calc error {symbol}: {e}")
         return None
