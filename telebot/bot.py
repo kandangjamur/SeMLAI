@@ -1,36 +1,54 @@
 import os
-import requests
-
-TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+from telegram import Bot
+from telegram.error import TelegramError
+from utils.logger import log
+from datetime import datetime
 
 def send_signal(signal):
-    if not TOKEN or not CHAT_ID:
-        print("Telegram token or chat ID missing.")
-        return
-
-    message = (
-        f"📈 Signal Alert\n\n"
-        f"Symbol: {signal['symbol']}\n"
-        f"Type: {signal['trade_type']}\n"
-        f"Direction: {signal['prediction']}\n"
-        f"Entry: {signal['price']}\n"
-        f"TP1: {signal['tp1']} ({signal['tp1_possibility']}%)\n"
-        f"TP2: {signal['tp2']} ({signal['tp2_possibility']}%)\n"
-        f"TP3: {signal['tp3']} ({signal['tp3_possibility']}%)\n"
-        f"SL: {signal['sl']}\n"
-        f"Confidence: {signal['confidence']}%\n"
-        f"Leverage: {signal['leverage']}x"
-    )
-
-    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
-
     try:
-        requests.post(url, data=payload)
+        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+        chat_id = os.getenv("TELEGRAM_CHAT_ID")
+        
+        if not bot_token or not chat_id:
+            log("❌ Telegram bot token or chat ID not set")
+            return
+
+        bot = Bot(token=bot_token)
+        
+        price = signal.get("price", 0)
+        direction = signal.get("prediction", "Unknown")
+        symbol = signal.get("symbol", "Unknown")
+        confidence = signal.get("confidence", 0)
+        trade_type = signal.get("trade_type", "Unknown")
+        leverage = signal.get("leverage", 20)
+        timestamp = datetime.fromtimestamp(signal.get("timestamp", 0) / 1000).strftime('%Y-%m-%d %H:%M:%S')
+        tp1 = signal.get("tp1", 0)
+        tp2 = signal.get("tp2", 0)
+        tp3 = signal.get("tp3", 0)
+        sl = signal.get("sl", 0)
+        
+        tp1_possibility = signal.get("tp1_possibility", 70)
+        tp2_possibility = signal.get("tp2_possibility", 60)
+        tp3_possibility = signal.get("tp3_possibility", 50)
+
+        message = (
+            f"📊 *New Signal for {symbol}*\n"
+            f"💰 *Price*: {price}\n"
+            f"📈 *Direction*: {direction}\n"
+            f"🎯 *TP1*: {tp1} ({tp1_possibility}%)\n"
+            f"🎯 *TP2*: {tp2} ({tp2_possibility}%)\n"
+            f"🎯 *TP3*: {tp3} ({tp3_possibility}%)\n"
+            f"🛑 *SL*: {sl}\n"
+            f"🔍 *Confidence*: {confidence}%\n"
+            f"📉 *Trade Type*: {trade_type}\n"
+            f"⚖️ *Leverage*: {leverage}x\n"
+            f"⏰ *Time*: {timestamp}"
+        )
+
+        bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
+        log(f"✅ Signal sent to Telegram for {symbol}")
+        
+    except TelegramError as e:
+        log(f"❌ Failed to send Telegram signal for {symbol}: {e}")
     except Exception as e:
-        print(f"Telegram send error: {e}")
+        log(f"❌ Unexpected error sending Telegram signal for {symbol}: {e}")
