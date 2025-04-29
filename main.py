@@ -1,3 +1,4 @@
+# main.py
 import os
 import time
 import threading
@@ -11,7 +12,7 @@ from data.tracker import update_signal_status
 from fastapi import FastAPI
 import uvicorn
 
-# Fake server for Koyeb
+# Setup fake server for Koyeb health check
 app = FastAPI()
 
 @app.get("/")
@@ -19,11 +20,12 @@ def read_root():
     return {"status": "running"}
 
 def start_fake_server():
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="error")
 
+# Start fake server in a thread
 threading.Thread(target=start_fake_server, daemon=True).start()
 
-# Setup exchange
+# Exchange setup
 exchange = ccxt.binance({
     'enableRateLimit': True,
     'options': {'defaultType': 'future'}
@@ -32,37 +34,36 @@ exchange = ccxt.binance({
 markets = exchange.load_markets()
 symbols = [
     s['symbol'] for s in markets.values()
-    if s['quote'] == 'USDT' and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
+    if s['quote'] == 'USDT' and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L", "ETF"])
 ]
 
 sent_signals = {}
-MIN_VOLUME = 1000000  # 1M USDT
+MIN_VOLUME = 500000  # 500k USDT (tuned)
 
 while True:
     log("🔁 New Scan Cycle Started")
     for symbol in symbols:
         try:
             if symbol not in exchange.symbols:
-                log(f"⛔ {symbol} not found on exchange. Skipping.")
+                log(f"⛔ {symbol} not found. Skipping.")
                 continue
 
             ticker = exchange.fetch_ticker(symbol)
             if ticker.get("baseVolume", 0) < MIN_VOLUME:
-                log(f"⚠️ {symbol} skipped due to low volume ({ticker.get('baseVolume', 0)})")
+                log(f"⚠️ Skipping {symbol} - Low volume ({ticker.get('baseVolume', 0)})")
                 continue
 
-            result = multi_timeframe_analysis(symbol, exchange)
-            if not result:
+            signal = multi_timeframe_analysis(symbol, exchange)
+            if not signal:
                 continue
 
-            signal = result
-            signal['prediction'] = predict_trend(symbol, exchange)
+            signal["prediction"] = predict_trend(symbol, exchange)
 
             if signal["prediction"] not in ["LONG", "SHORT"]:
-                log(f"⚠️ {symbol} has no strong direction. Skipping.")
+                log(f"⚠️ {symbol} prediction weak. Skipping.")
                 continue
 
-            # Real leverage limit fetch
+            # Real leverage fetch
             try:
                 leverage_info = exchange.fetch_leverage_tiers(symbol)
                 max_leverage = leverage_info[symbol][0]['maxLeverage']
@@ -79,10 +80,10 @@ while True:
             send_signal(signal)
             sent_signals[symbol] = time.time()
 
-            log(f"✅ Signal Sent: {symbol} | {signal['trade_type']} | {signal['confidence']}% confidence")
+            log(f"✅ Signal Sent: {symbol} | {signal['trade_type']} | Confidence: {signal['confidence']}%")
 
         except Exception as e:
-            log(f"❌ Error with {symbol}: {e}")
+            log(f"❌ Error processing {symbol}: {e}")
 
     update_signal_status()
     time.sleep(120)
