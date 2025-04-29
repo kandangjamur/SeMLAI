@@ -1,3 +1,4 @@
+# core/indicators.py
 import pandas as pd
 import ta
 from utils.support_resistance import detect_sr_levels
@@ -7,6 +8,7 @@ from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
 def calculate_indicators(symbol, ohlcv):
     try:
         df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+
         if df["close"].isnull().mean() > 0.1:
             return None
 
@@ -19,6 +21,7 @@ def calculate_indicators(symbol, ohlcv):
         df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
         df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"]).stochrsi_k()
         df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"]).adx()
+        df["volume_sma"] = df["volume"].rolling(window=20).mean()
 
         latest = df.iloc[-1]
 
@@ -40,7 +43,8 @@ def calculate_indicators(symbol, ohlcv):
 
         price = latest["close"]
         atr = latest["atr"]
-        fib = calculate_fibonacci_levels(price, direction="LONG")
+
+        fib = calculate_fibonacci_levels(price, "LONG")
         tp1 = round(fib.get("tp1", price + atr * 1.5), 3)
         tp2 = round(fib.get("tp2", price + atr * 2.5), 3)
         tp3 = round(fib.get("tp3", price + atr * 4), 3)
@@ -52,9 +56,7 @@ def calculate_indicators(symbol, ohlcv):
         sl = round(support if support else price - atr * 2, 3)
 
         trade_type = "Normal" if confidence >= 85 else "Scalping"
-
-        leverage = 20  # Placeholder, will override from real leverage check
-
+        leverage = 20
         possibility = min(confidence + 5, 99)
 
         return {
@@ -75,5 +77,5 @@ def calculate_indicators(symbol, ohlcv):
         }
 
     except Exception as e:
-        print(f"❌ Indicator calc error {symbol}: {e}")
+        print(f"❌ Indicator calculation error {symbol}: {e}")
         return None
