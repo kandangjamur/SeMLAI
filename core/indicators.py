@@ -4,20 +4,29 @@ from utils.support_resistance import detect_sr_levels
 from utils.fibonacci import calculate_fibonacci_levels
 from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
 import numpy as np
+from utils.logger import log
 
 def calculate_indicators(symbol, ohlcv):
     try:
         df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        # ڈیٹا کی صفائی
         df = df.dropna()
-        df["ema_20"] = ta.trend.EMAIndicator(df["close"], 20).ema_indicator()
-        df["ema_50"] = ta.trend.EMAIndicator(df["close"], 50).ema_indicator()
-        df["rsi"] = ta.momentum.RSIIndicator(df["close"], 14).rsi()
-        macd = ta.trend.MACD(df["close"])
+        df = df[(df['close'] != 0) & (df['high'] != 0) & (df['low'] != 0) & (df['volume'] != 0)]
+        
+        if len(df) < 50:
+            log(f"⚠️ Insufficient valid data for {symbol}: {len(df)} rows")
+            return None
+
+        # انڈیکیٹرز کیلکولیٹ کریں
+        df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20, fillna=True).ema_indicator()
+        df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50, fillna=True).ema_indicator()
+        df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14, fillna=True).rsi()
+        macd = ta.trend.MACD(df["close"], fillna=True)
         df["macd"] = macd.macd()
         df["macd_signal"] = macd.macd_signal()
-        df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
-        df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"]).adx()
-        df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"]).stochrsi_k()
+        df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], fillna=True).average_true_range()
+        df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=14, fillna=True).adx()
+        df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"], fillna=True).stochrsi_k()
 
         latest = df.iloc[-1]
         confidence = 0
@@ -45,7 +54,7 @@ def calculate_indicators(symbol, ohlcv):
         leverage = 20
         possibility = min(confidence + 5, 99)
 
-        return {
+        signal = {
             "symbol": symbol,
             "price": price,
             "confidence": confidence,
@@ -62,5 +71,9 @@ def calculate_indicators(symbol, ohlcv):
             "possibility": possibility
         }
 
+        log(f"✅ Indicators calculated for {symbol}: confidence={confidence}")
+        return signal
+
     except Exception as e:
+        log(f"❌ Error calculating indicators for {symbol}: {e}")
         return None
