@@ -9,15 +9,18 @@ from utils.logger import log
 def calculate_indicators(symbol, ohlcv):
     try:
         df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        # ڈیٹا کی صفائی
         df = df.dropna()
-        df = df[(df['close'] != 0) & (df['high'] != 0) & (df['low'] != 0) & (df['volume'] != 0)]
+        df = df[(df['close'] > 0) & (df['high'] > 0) & (df['low'] > 0) & (df['volume'] > 0)]
+        df = df[df['high'] > df['low']]
         
         if len(df) < 50:
             log(f"⚠️ Insufficient valid data for {symbol}: {len(df)} rows")
             return None
 
-        # انڈیکیٹرز کیلکولیٹ کریں
+        if df['close'].std() <= 0 or df['volume'].mean() < 1000:
+            log(f"⚠️ Low volatility or volume for {symbol}: std={df['close'].std()}, avg_volume={df['volume'].mean()}")
+            return None
+
         df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20, fillna=True).ema_indicator()
         df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50, fillna=True).ema_indicator()
         df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14, fillna=True).rsi()
@@ -25,7 +28,22 @@ def calculate_indicators(symbol, ohlcv):
         df["macd"] = macd.macd()
         df["macd_signal"] = macd.macd_signal()
         df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], fillna=True).average_true_range()
-        df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=14, fillna=True).adx()
+        
+        try:
+            if (df['high'] - df['low']).eq(0).any() or df['close'].eq(0).any():
+                log(f"⚠️ Invalid data for ADX calculation for {symbol}")
+                df["adx"] = np.nan
+            else:
+                adx = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=14, fillna=True).adx()
+                if adx.isna().all() or adx.eq(0).all():
+                    log(f"⚠️ ADX returned invalid values for {symbol}")
+                    df["adx"] = np.nan
+                else:
+                    df["adx"] = adx
+        except Exception as e:
+            log(f"⚠️ ADX calculation failed for {symbol}: {e}")
+            df["adx"] = np.nan
+
         df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"], fillna=True).stochrsi_k()
 
         latest = df.iloc[-1]
@@ -33,7 +51,7 @@ def calculate_indicators(symbol, ohlcv):
         confidence += 20 if latest["ema_20"] > latest["ema_50"] else 0
         confidence += 15 if latest["rsi"] > 55 else 0
         confidence += 15 if latest["macd"] > latest["macd_signal"] else 0
-        confidence += 10 if latest["adx"] > 20 else 0
+        confidence += 10 if not np.isnan(latest["adx"]) and latest["adx"] > 20 else 0
         confidence += 10 if latest["stoch_rsi"] < 0.2 else 0
         confidence += 10 if is_bullish_engulfing(df) else 0
         confidence += 10 if is_breakout_candle(df) else 0
