@@ -8,7 +8,7 @@ from core.engine import predict_trend
 from utils.logger import log, log_signal_to_csv
 from telebot.bot import send_signal
 from data.tracker import update_signal_status
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
