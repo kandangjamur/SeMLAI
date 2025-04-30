@@ -1,9 +1,9 @@
 import pandas as pd
 import os
-import ccxt
+import ccxt.async_support as ccxt
 from utils.logger import log
 
-def update_signal_status():
+async def update_signal_status():
     filename = "logs/signals_log.csv"
     if not os.path.exists(filename):
         log("⚠️ No signals log file found")
@@ -18,16 +18,16 @@ def update_signal_status():
         'enableRateLimit': True,
         'options': {'defaultType': 'future'}
     })
+    await exchange.load_markets()
 
     for index, row in df.iterrows():
         if row['status'] != 'pending':
             continue
 
         try:
-            ticker = exchange.fetch_ticker(row['symbol'])
+            ticker = await exchange.fetch_ticker(row['symbol'])
             current_price = ticker['last']
 
-            # چیک کریں کہ آیا TP یا SL پر پہنچ گیا
             if row['direction'] == 'LONG':
                 if current_price >= row['tp1']:
                     df.at[index, 'status'] = 'TP1_hit'
