@@ -1,5 +1,3 @@
-# core/trade_classifier.py
-
 def classify_trade(confidence):
     if confidence >= 80:
         return "Normal"
