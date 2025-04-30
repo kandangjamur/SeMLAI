@@ -12,7 +12,7 @@ def calculate_indicators(symbol, ohlcv):
         df = df.dropna()
         df = df[(df['close'] > 0) & (df['high'] > 0) & (df['low'] > 0) & (df['volume'] > 0)]
         df = df[df['high'] > df['low']]
-        
+
         if len(df) < 50:
             log(f"⚠️ Insufficient valid data for {symbol}: {len(df)} rows")
             return None
@@ -28,7 +28,7 @@ def calculate_indicators(symbol, ohlcv):
         df["macd"] = macd.macd()
         df["macd_signal"] = macd.macd_signal()
         df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], fillna=True).average_true_range()
-        
+
         try:
             if (df['high'] - df['low']).eq(0).any() or df['close'].eq(0).any():
                 log(f"⚠️ Invalid data for ADX calculation for {symbol}")
