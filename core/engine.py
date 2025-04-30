@@ -1,8 +1,8 @@
 from utils.logger import log
 
-def predict_trend(symbol, exchange):
+async def predict_trend(symbol, exchange):
     try:
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe="15m", limit=50)
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe="15m", limit=50)
         if len(ohlcv) < 3:
             log(f"⚠️ Insufficient data for trend prediction for {symbol}")
             return None
@@ -14,8 +14,9 @@ def predict_trend(symbol, exchange):
         elif closes[-1] < closes[-2] < closes[-3]:
             log(f"✅ SHORT trend detected for {symbol}")
             return "SHORT"
+
         log(f"⚠️ No clear trend for {symbol}")
-        return None  # کوئی ٹرینڈ نہ ہو تو None واپس کریں
+        return None
     except Exception as e:
         log(f"❌ Error predicting trend for {symbol}: {e}")
         return None
