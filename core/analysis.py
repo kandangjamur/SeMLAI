@@ -4,19 +4,19 @@ from utils.logger import log
 
 TIMEFRAMES = ["15m", "1h", "4h", "1d"]
 
-def multi_timeframe_analysis(symbol, exchange):
+async def multi_timeframe_analysis(symbol, exchange):
     timeframe_results = []
 
     for tf in TIMEFRAMES:
         try:
-            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
             if not ohlcv or len(ohlcv) < 50:
                 log(f"⚠️ Insufficient data for {symbol} on {tf}: {len(ohlcv)} candles")
                 continue
 
             signal = calculate_indicators(symbol, ohlcv)
             if signal and not np.isnan(signal.get('confidence', 0)) and not np.isnan(signal.get('price', 0)):
-                signal["timeframe"] = tf  # useful for debugging
+                signal["timeframe"] = tf
                 timeframe_results.append(signal)
             else:
                 log(f"⚠️ Invalid signal for {symbol} on {tf}")
@@ -31,12 +31,10 @@ def multi_timeframe_analysis(symbol, exchange):
         types = set([s["trade_type"] for s in strong])
         avg_conf = np.mean([s["confidence"] for s in strong])
 
-        # 🚫 Price deviation too high (over 2%)
         if max(prices) - min(prices) > min(prices) * 0.02:
             log(f"⚠️ Price deviation too high for {symbol} across timeframes")
             return None
 
-        # ⚠️ Conflicting trade types (Scalping vs Normal)
         if len(types) > 1:
             log(f"⚠️ Inconsistent trade types for {symbol}: {types}")
             return None
