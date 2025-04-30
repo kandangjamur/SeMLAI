@@ -83,10 +83,13 @@ async def load_symbols(exchange):
     try:
         crash_logger.info("Loading markets")
         markets = exchange.load_markets()
+        # Exclude invalid symbols like TUSD/USDT
+        invalid_symbols = ['TUSD/USDT', 'USDC/USDT']  # Add more if needed
         symbols = [
             s['symbol'] for s in markets.values()
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
+            and s['symbol'] not in invalid_symbols
         ][:15]  # Top 15 symbols
         log(f"✅ Loaded {len(symbols)} USDT symbols")
         crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
@@ -107,8 +110,9 @@ async def main_loop():
 
     blacklisted_symbols = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT"]
     symbols = [s for s in symbols if s not in blacklisted_symbols]
-    MIN_VOLUME = 10000000
+    MIN_VOLUME = 3000000  # Reduced from 10000000 to include more symbols
     sent_signals = {}
+    CONFIDENCE_THRESHOLD = 50  # Reduced from default (assuming ~70) to get more signals
 
     while True:
         log("🔁 New Scan Cycle Started")
@@ -138,6 +142,13 @@ async def main_loop():
                 if signal["prediction"] not in ["LONG", "SHORT"]:
                     log(f"⚠️ Invalid prediction for {symbol}: {signal['prediction']}")
                     crash_logger.warning(f"Invalid prediction for {symbol}: {signal['prediction']}")
+                    continue
+
+                # Check confidence level
+                confidence = signal.get("confidence", 0)
+                if confidence < CONFIDENCE_THRESHOLD:
+                    log(f"⚠️ No strong signals for {symbol}: confidence={confidence}")
+                    crash_logger.warning(f"No strong signals for {symbol}: confidence={confidence}")
                     continue
 
                 signal["leverage"] = 10  # Default leverage
