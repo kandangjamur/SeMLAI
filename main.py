@@ -91,7 +91,7 @@ async def load_symbols(exchange):
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             and s['symbol'] not in invalid_symbols
-        ][:200]
+        ][:100]
         log(f"✅ Loaded {len(symbols)} USDT symbols")
         crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
         return symbols
