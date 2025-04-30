@@ -4,7 +4,7 @@ from telegram.error import TelegramError
 from utils.logger import log
 from datetime import datetime
 
-def send_signal(signal):
+async def send_signal(symbol, signal):
     try:
         bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
         chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -14,10 +14,9 @@ def send_signal(signal):
             return
 
         bot = Bot(token=bot_token)
-        
+
         price = signal.get("price", 0)
         direction = signal.get("prediction", "Unknown")
-        symbol = signal.get("symbol", "Unknown")
         confidence = signal.get("confidence", 0)
         trade_type = signal.get("trade_type", "Unknown")
         leverage = signal.get("leverage", 20)
@@ -26,7 +25,6 @@ def send_signal(signal):
         tp2 = signal.get("tp2", 0)
         tp3 = signal.get("tp3", 0)
         sl = signal.get("sl", 0)
-        
         tp1_possibility = signal.get("tp1_possibility", 70)
         tp2_possibility = signal.get("tp2_possibility", 60)
         tp3_possibility = signal.get("tp3_possibility", 50)
@@ -45,7 +43,7 @@ def send_signal(signal):
             f"⏰ *Time*: {timestamp}"
         )
 
-        bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
+        await bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
         log(f"✅ Signal sent to Telegram for {symbol}")
         
     except TelegramError as e:
