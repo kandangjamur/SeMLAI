@@ -3,6 +3,7 @@ import ta
 from utils.support_resistance import detect_sr_levels
 from utils.fibonacci import calculate_fibonacci_levels
 from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
+from core.whale_detector import is_whale_active
 import numpy as np
 from utils.logger import log
 
@@ -12,7 +13,7 @@ def calculate_indicators(symbol, ohlcv):
         df = df.dropna()
         df = df[(df['close'] > 0) & (df['high'] > 0) & (df['low'] > 0) & (df['volume'] > 0)]
         df = df[df['high'] > df['low']]
-        
+
         if len(df) < 50:
             log(f"⚠️ Insufficient valid data for {symbol}: {len(df)} rows")
             return None
@@ -28,7 +29,7 @@ def calculate_indicators(symbol, ohlcv):
         df["macd"] = macd.macd()
         df["macd_signal"] = macd.macd_signal()
         df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], fillna=True).average_true_range()
-        
+
         try:
             if (df['high'] - df['low']).eq(0).any() or df['close'].eq(0).any():
                 log(f"⚠️ Invalid data for ADX calculation for {symbol}")
@@ -49,25 +50,45 @@ def calculate_indicators(symbol, ohlcv):
         latest = df.iloc[-1]
         confidence = 0
         confidence += 20 if latest["ema_20"] > latest["ema_50"] else 0
-        confidence += 15 if latest["rsi"] > 55 else 0
+        confidence += 15 if latest["rsi"] > 60 else 0
         confidence += 15 if latest["macd"] > latest["macd_signal"] else 0
-        confidence += 10 if not np.isnan(latest["adx"]) and latest["adx"] > 20 else 0
+        confidence += 10 if not np.isnan(latest["adx"]) and latest["adx"] > 25 else 0
         confidence += 10 if latest["stoch_rsi"] < 0.2 else 0
         confidence += 10 if is_bullish_engulfing(df) else 0
         confidence += 10 if is_breakout_candle(df) else 0
 
+        # Volume spike filter
+        avg_volume = df["volume"].rolling(window=20).mean().iloc[-1]
+        if latest["volume"] < avg_volume * 2:
+            log(f"⚠️ No volume spike for {symbol}")
+            return None
+
+        # Whale presence check
+        if not is_whale_active(symbol):
+            log(f"⚠️ No whale activity for {symbol}")
+            return None
+
+        # Final confidence check
+        if confidence < 70:
+            log(f"⚠️ Low confidence for {symbol}: {confidence}")
+            return None
+
         price = latest["close"]
         atr = latest["atr"]
         fib = calculate_fibonacci_levels(price, direction="LONG")
-        tp1 = round(fib.get("tp1", price + atr * 1.5), 4)
-        tp2 = round(fib.get("tp2", price + atr * 2.5), 4)
-        tp3 = round(fib.get("tp3", price + atr * 4), 4)
+
+        # Dynamic TP and SL
+        tp1 = round(price + atr * 1.8, 4)
+        tp2 = round(price + atr * 2.8, 4)
+        tp3 = round(price + atr * 4, 4)
+
+        swing_low = df["low"].rolling(window=10).min().iloc[-1]
+        sl = round(swing_low, 4)
 
         sr = detect_sr_levels(df)
         support = sr.get("support")
         resistance = sr.get("resistance")
 
-        sl = round(support if support else price - atr * 2, 4)
         trade_type = "Normal" if confidence >= 85 else "Scalping"
         leverage = 20
         possibility = min(confidence + 5, 99)
@@ -89,7 +110,7 @@ def calculate_indicators(symbol, ohlcv):
             "possibility": possibility
         }
 
-        log(f"✅ Indicators calculated for {symbol}: confidence={confidence}")
+        log(f"✅ Final signal for {symbol}: confidence={confidence}, tp1={tp1}, sl={sl}")
         return signal
 
     except Exception as e:
