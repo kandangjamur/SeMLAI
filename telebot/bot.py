@@ -30,7 +30,7 @@ async def send_signal(symbol, signal):
         tp3_possibility = signal.get("tp3_possibility", 50)
 
         message = (
-            f"📊 *New Signal for {symbol}*\n"
+            f"📊 *Signal for {symbol}*\n"
             f"💰 *Price*: {price}\n"
             f"📈 *Direction*: {direction}\n"
             f"🎯 *TP1*: {tp1} ({tp1_possibility}%)\n"
@@ -40,7 +40,7 @@ async def send_signal(symbol, signal):
             f"🔍 *Confidence*: {confidence}%\n"
             f"📉 *Trade Type*: {trade_type}\n"
             f"⚖️ *Leverage*: {leverage}x\n"
-            f"⏰ *Time*: {timestamp}"
+            
         )
 
         await bot.send_message(chat_id=chat_id, text=message, parse_mode="Markdown")
