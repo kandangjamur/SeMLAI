@@ -83,14 +83,13 @@ async def load_symbols(exchange):
     try:
         crash_logger.info("Loading markets")
         markets = exchange.load_markets()
-        # Exclude invalid symbols like TUSD/USDT
-        invalid_symbols = ['TUSD/USDT', 'USDC/USDT']  # Add more if needed
+        invalid_symbols = ['TUSD/USDT', 'USDC/USDT']  
         symbols = [
             s['symbol'] for s in markets.values()
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             and s['symbol'] not in invalid_symbols
-        ][:15]  # Top 15 symbols
+        ][:15]  
         log(f"✅ Loaded {len(symbols)} USDT symbols")
         crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
         return symbols
@@ -110,16 +109,16 @@ async def main_loop():
 
     blacklisted_symbols = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT"]
     symbols = [s for s in symbols if s not in blacklisted_symbols]
-    MIN_VOLUME = 3000000  # Reduced from 10000000 to include more symbols
+    MIN_VOLUME = 3000000  
     sent_signals = {}
-    CONFIDENCE_THRESHOLD = 50  # Reduced from default (assuming ~70) to get more signals
+    CONFIDENCE_THRESHOLD = 50  
 
     while True:
         log("🔁 New Scan Cycle Started")
         crash_logger.info("New scan cycle started")
         for symbol in symbols:
             try:
-                await asyncio.sleep(0.5)  # 0.5 second delay between symbols
+                await asyncio.sleep(0.5)  
                 if symbol not in exchange.symbols:
                     log(f"⚠️ Symbol {symbol} not found in exchange")
                     crash_logger.warning(f"Symbol {symbol} not found in exchange")
@@ -144,39 +143,20 @@ async def main_loop():
                     crash_logger.warning(f"Invalid prediction for {symbol}: {signal['prediction']}")
                     continue
 
-                # Check confidence level
                 confidence = signal.get("confidence", 0)
                 if confidence < CONFIDENCE_THRESHOLD:
                     log(f"⚠️ No strong signals for {symbol}: confidence={confidence}")
                     crash_logger.warning(f"No strong signals for {symbol}: confidence={confidence}")
                     continue
 
-                signal["leverage"] = 10  # Default leverage
-
-                price = signal["price"]
-                signal["tp1_possibility"] = round(max(70, 100 - abs(signal["tp1"] - price) / price * 100) if price != 0 else 70, 2)
-                signal["tp2_possibility"] = round(max(60, 95 - abs(signal["tp2"] - price) / price * 100) if price != 0 else 60, 2)
-                signal["tp3_possibility"] = round(max(50, 90 - abs(signal["tp3"] - price) / price * 100) if price != 0 else 50, 2)
-
-                send_signal(signal)
-                log_signal_to_csv(signal)
-                sent_signals[symbol] = time.time()
-                log(f"✅ Signal sent for {symbol}: TP1={signal['tp1']} ({signal['tp1_possibility']}%), TP2={signal['tp2']} ({signal['tp2_possibility']}%), TP3={signal['tp3']} ({signal['tp3_possibility']}%)")
-                crash_logger.info(f"Signal sent for {symbol}: TP1={signal['tp1']} ({signal['tp1_possibility']}%), TP2={signal['tp2']} ({signal['tp2_possibility']}%), TP3={signal['tp3']} ({signal['tp3_possibility']}%)")
+                await send_signal(symbol, signal)
+                sent_signals[symbol] = signal
 
             except Exception as e:
-                log(f"❌ Error with {symbol}: {e}")
-                crash_logger.error(f"Error with {symbol}: {e}")
-                continue
-
-        update_signal_status()
-        await asyncio.sleep(300)  # 5 minute interval
-
-# Run the main loop in the background
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(main_loop())
+                log(f"❌ Error in processing {symbol}: {e}")
+                crash_logger.error(f"Error in processing {symbol}: {e}")
+            await asyncio.sleep(0.5)
 
 if __name__ == "__main__":
-    log("Starting CryptoSniper application")
-    crash_logger.info("Starting CryptoSniper application")
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main_loop())
