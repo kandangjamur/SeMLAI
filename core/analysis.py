@@ -6,6 +6,7 @@ TIMEFRAMES = ["15m", "1h", "4h", "1d"]
 
 def multi_timeframe_analysis(symbol, exchange):
     timeframe_results = []
+
     for tf in TIMEFRAMES:
         try:
             ohlcv = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
@@ -15,6 +16,7 @@ def multi_timeframe_analysis(symbol, exchange):
 
             signal = calculate_indicators(symbol, ohlcv)
             if signal and not np.isnan(signal.get('confidence', 0)) and not np.isnan(signal.get('price', 0)):
+                signal["timeframe"] = tf  # useful for debugging
                 timeframe_results.append(signal)
             else:
                 log(f"⚠️ Invalid signal for {symbol} on {tf}")
@@ -23,8 +25,26 @@ def multi_timeframe_analysis(symbol, exchange):
             continue
 
     strong = [s for s in timeframe_results if s['confidence'] >= 75]
+
     if len(strong) >= 3:
-        log(f"✅ Strong signal found for {symbol}")
-        return strong[0]
-    log(f"⚠️ No strong signals for {symbol}")
+        prices = [s["price"] for s in strong]
+        types = set([s["trade_type"] for s in strong])
+        avg_conf = np.mean([s["confidence"] for s in strong])
+
+        # 🚫 Price deviation too high (over 2%)
+        if max(prices) - min(prices) > min(prices) * 0.02:
+            log(f"⚠️ Price deviation too high for {symbol} across timeframes")
+            return None
+
+        # ⚠️ Conflicting trade types (Scalping vs Normal)
+        if len(types) > 1:
+            log(f"⚠️ Inconsistent trade types for {symbol}: {types}")
+            return None
+
+        best_signal = max(strong, key=lambda s: s["confidence"])
+        best_signal["confidence"] = round(avg_conf, 2)
+        log(f"✅ Strong multi-timeframe signal for {symbol} with avg confidence {avg_conf}")
+        return best_signal
+
+    log(f"⚠️ No consistent strong signals for {symbol}")
     return None
