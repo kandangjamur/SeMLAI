@@ -18,7 +18,7 @@ import sys
 
 # Setup logging to file for crash debugging
 logging.basicConfig(
-    filename="crash.log",
+    filename="logs/crash.log",
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -37,7 +37,7 @@ async def read_root(request: Request):
     signals = []
     try:
         with open("logs/signals_log.csv", "r") as file:
-            lines = file.readlines()[-50:]  # آخری 50 سگنلز
+            lines = file.readlines()[-50:]  # Last 50 signals
             for line in lines[1:]:
                 parts = line.strip().split(",")
                 if len(parts) >= 10:
@@ -95,7 +95,7 @@ try:
         if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
         and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
         and s.get('info', {}).get('volume', 0) > 1000000
-    ][:15]  # ٹاپ 15 سمبلز
+    ][:15]  # Top 15 symbols
     log(f"✅ Loaded {len(symbols)} USDT symbols")
     crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
 except Exception as e:
@@ -113,7 +113,7 @@ while True:
     crash_logger.info("New scan cycle started")
     for symbol in symbols:
         try:
-            time.sleep(0.5)  # ہر سمبل کے درمیان 0.5 سیکنڈ وقفہ
+            time.sleep(0.5)  # 0.5 second delay between symbols
             if symbol not in exchange.symbols:
                 log(f"⚠️ Symbol {symbol} not found in exchange")
                 crash_logger.warning(f"Symbol {symbol} not found in exchange")
@@ -138,7 +138,7 @@ while True:
                 crash_logger.warning(f"Invalid prediction for {symbol}: {signal['prediction']}")
                 continue
 
-            signal["leverage"] = 10  # ڈیفالٹ لیوریج
+            signal["leverage"] = 10  # Default leverage
 
             price = signal["price"]
             signal["tp1_possibility"] = round(max(70, 100 - abs(signal["tp1"] - price) / price * 100) if price != 0 else 70, 2)
@@ -157,4 +157,4 @@ while True:
             continue
 
     update_signal_status()
-    time.sleep(300)  # 5 منٹ کا وقفہ
+    time.sleep(300)  # 5 minute interval
