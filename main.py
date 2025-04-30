@@ -51,9 +51,9 @@ async def read_root(request: Request):
                         "confidence": parts[7],
                         "trade_type": parts[8],
                         "timestamp": parts[9],
-                        "tp1_possibility": parts[10] if len(parts) > 10 else 70,
-                        "tp2_possibility": parts[11] if len(parts) > 11 else 60,
-                        "tp3_possibility": parts[12] if len(parts) > 12 else 50
+                        "tp1_possibility": parts[10] if len(parts) > 10 else 85,
+                        "tp2_possibility": parts[11] if len(parts) > 11 else 75,
+                        "tp3_possibility": parts[12] if len(parts) > 12 else 65
                     })
     except FileNotFoundError:
         log("⚠️ Signals log is empty")
@@ -90,7 +90,7 @@ async def load_symbols(exchange):
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             and s['symbol'] not in invalid_symbols
-        ][:20]  # Increased to 20 for more signals
+        ][:15]  # 15 symbols for 60-70 signals/day
         log(f"✅ Loaded {len(symbols)} USDT symbols")
         crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
         return symbols
@@ -107,7 +107,7 @@ async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD):
             return None
 
         ticker = await exchange.fetch_ticker(symbol)
-        if not ticker or ticker.get("baseVolume", 0) < 500000:  # Lowered MIN_VOLUME
+        if not ticker or ticker.get("baseVolume", 0) < 1000000:  # High volume for accuracy
             log(f"⚠️ Low volume for {symbol}: {ticker.get('baseVolume', 0)}")
             crash_logger.warning(f"Low volume for {symbol}: {ticker.get('baseVolume', 0)}")
             return None
@@ -133,9 +133,9 @@ async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD):
 
         signal["leverage"] = 10
         price = signal["price"]
-        signal["tp1_possibility"] = round(min(90, 100 - abs(signal["tp1"] - price) / price * 100) if price != 0 else 80, 2)
-        signal["tp2_possibility"] = round(min(80, 95 - abs(signal["tp2"] - price) / price * 100) if price != 0 else 70, 2)
-        signal["tp3_possibility"] = round(min(70, 90 - abs(signal["tp3"] - price) / price * 100) if price != 0 else 60, 2)
+        signal["tp1_possibility"] = round(min(95, 100 - abs(signal["tp1"] - price) / price * 100) if price != 0 else 85, 2)
+        signal["tp2_possibility"] = round(min(85, 95 - abs(signal["tp2"] - price) / price * 100) if price != 0 else 75, 2)
+        signal["tp3_possibility"] = round(min(75, 90 - abs(signal["tp3"] - price) / price * 100) if price != 0 else 65, 2)
 
         await send_signal(symbol, signal)
         log_signal_to_csv(signal)
@@ -161,13 +161,12 @@ async def main_loop():
         blacklisted_symbols = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT", "JST/USDT"]
         symbols = [s for s in symbols if s not in blacklisted_symbols]
         sent_signals = {}
-        CONFIDENCE_THRESHOLD = 40  # Balanced for accuracy and signal generation
-        MIN_CANDLES = 30  # Minimum candles to avoid insufficient data
+        CONFIDENCE_THRESHOLD = 50  # High for accuracy
+        MIN_CANDLES = 30  # Avoid insufficient data
 
         while True:
             log("🔁 New Scan Cycle Started")
             crash_logger.info("New scan cycle started")
-            # Parallel processing of symbols
             tasks = [process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD) for symbol in symbols]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -176,7 +175,7 @@ async def main_loop():
                     sent_signals[symbol] = time.time()
 
             update_signal_status()
-            await asyncio.sleep(300)  # 5 minute interval
+            await asyncio.sleep(240)  # 4 minute interval for more cycles
     except Exception as e:
         log(f"❌ Main loop error: {e}")
         crash_logger.error(f"Main loop error: {e}")
