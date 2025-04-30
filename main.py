@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 import logging
 import sys
 import asyncio
+from datetime import datetime, timedelta
 
 # Logging setup
 logging.basicConfig(
@@ -90,7 +91,7 @@ async def load_symbols(exchange):
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             and s['symbol'] not in invalid_symbols
-        ][:12]  # Reduced to 12 to minimize API load
+        ][:15]  # Increased to 15 for 60-70 signals/day
         log(f"✅ Loaded {len(symbols)} USDT symbols")
         crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
         return symbols
@@ -99,12 +100,12 @@ async def load_symbols(exchange):
         crash_logger.error(f"Failed to load markets: {e}")
         return []
 
-async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, COOLDOWN_PERIOD=1800):
+async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, current_date):
     try:
-        # Check cooldown
-        if symbol in sent_signals and (time.time() - sent_signals[symbol]) < COOLDOWN_PERIOD:
-            log(f"⚠️ Skipping {symbol}: In cooldown period")
-            crash_logger.warning(f"Skipping {symbol}: In cooldown period")
+        # Check if signal was sent for this symbol today
+        if symbol in sent_signals and sent_signals[symbol]["date"] == current_date:
+            log(f"⚠️ Skipping {symbol}: Already sent signal today")
+            crash_logger.warning(f"Skipping {symbol}: Already sent signal today")
             return None
 
         await asyncio.sleep(0.1)  # Delay to prevent API rate limit
@@ -172,17 +173,20 @@ async def main_loop():
         sent_signals = {}
         CONFIDENCE_THRESHOLD = 50  # High for accuracy
         MIN_CANDLES = 30  # Avoid insufficient data
-        COOLDOWN_PERIOD = 1800  # 30 minutes cooldown
 
         while True:
+            current_date = datetime.utcnow().date().isoformat()
+            # Reset sent_signals for symbols from previous days
+            sent_signals = {k: v for k, v in sent_signals.items() if v["date"] == current_date}
+
             log("🔁 New Scan Cycle Started")
             crash_logger.info("New scan cycle started")
-            tasks = [process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, COOLDOWN_PERIOD) for symbol in symbols]
+            tasks = [process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, current_date) for symbol in symbols]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for symbol, result in zip(symbols, results):
                 if result and isinstance(result, dict):
-                    sent_signals[symbol] = time.time()
+                    sent_signals[symbol] = {"date": current_date, "timestamp": time.time()}
 
             await update_signal_status()  # Await async function
             await asyncio.sleep(240)  # 4 minute interval
