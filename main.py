@@ -16,6 +16,7 @@ import logging
 import sys
 import asyncio
 
+# Logging setup
 logging.basicConfig(
     filename="logs/crash.log",
     level=logging.INFO,
@@ -158,6 +159,7 @@ async def main_loop():
                 crash_logger.error(f"Error in processing {symbol}: {e}")
             await asyncio.sleep(0.5)
 
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main_loop())
+# ✅ FastAPI startup trigger
+@app.on_event("startup")
+async def start_background_loop():
+    asyncio.create_task(main_loop())
