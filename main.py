@@ -111,7 +111,7 @@ async def main_loop():
 
     blacklisted_symbols = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT"]
     symbols = [s for s in symbols if s not in blacklisted_symbols]
-    MIN_VOLUME = 3000000
+    MIN_VOLUME = 1000000
     sent_signals = {}
     CONFIDENCE_THRESHOLD = 50
 
