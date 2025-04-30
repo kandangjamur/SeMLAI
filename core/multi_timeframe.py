@@ -1,12 +1,11 @@
-# core/multi_timeframe.py
 import ccxt
 
-def multi_timeframe_boost(symbol, exchange, direction):
+async def multi_timeframe_boost(symbol, exchange, direction):
     boost = 0
     try:
-        timeframes = ["15min","1h", "4h", "1d"]
+        timeframes = ["15m", "1h", "4h", "1d"]
         for tf in timeframes:
-            ohlcv = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=50)
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=tf, limit=50)
             if not ohlcv:
                 continue
             closes = [c[4] for c in ohlcv]
