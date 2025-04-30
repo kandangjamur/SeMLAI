@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import ccxt.async_support as ccxt
 import numpy as np
 from core.analysis import multi_timeframe_analysis
@@ -91,7 +92,7 @@ async def load_symbols(exchange):
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             and s['symbol'] not in invalid_symbols
-        ][:15]  # Increased to 15 for 60-70 signals/day
+        ][:10]  # Reduced to 10 to minimize API load
         log(f"✅ Loaded {len(symbols)} USDT symbols")
         crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
         return symbols
@@ -99,6 +100,25 @@ async def load_symbols(exchange):
         log(f"❌ Failed to load markets: {e}")
         crash_logger.error(f"Failed to load markets: {e}")
         return []
+
+def load_sent_signals():
+    try:
+        with open("logs/sent_signals.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        log(f"❌ Error loading sent_signals: {e}")
+        crash_logger.error(f"Error loading sent_signals: {e}")
+        return {}
+
+def save_sent_signals(sent_signals):
+    try:
+        with open("logs/sent_signals.json", "w") as f:
+            json.dump(sent_signals, f)
+    except Exception as e:
+        log(f"❌ Error saving sent_signals: {e}")
+        crash_logger.error(f"Error saving sent_signals: {e}")
 
 async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, current_date):
     try:
@@ -108,7 +128,7 @@ async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, c
             crash_logger.warning(f"Skipping {symbol}: Already sent signal today")
             return None
 
-        await asyncio.sleep(0.1)  # Delay to prevent API rate limit
+        await asyncio.sleep(0.2)  # Increased delay to prevent API rate limit
         if symbol not in exchange.symbols:
             log(f"⚠️ Symbol {symbol} not found in exchange")
             crash_logger.warning(f"Symbol {symbol} not found in exchange")
@@ -149,6 +169,8 @@ async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, c
 
         await send_signal(symbol, signal)
         log_signal_to_csv(signal)
+        sent_signals[symbol] = {"date": current_date, "timestamp": time.time()}
+        save_sent_signals(sent_signals)
         log(f"✅ Signal sent for {symbol}: TP1={signal['tp1']} ({signal['tp1_possibility']}%), TP2={signal['tp2']} ({signal['tp2_possibility']}%), TP3={signal['tp3']} ({signal['tp3_possibility']}%)")
         crash_logger.info(f"Signal sent for {symbol}: TP1={signal['tp1']} ({signal['tp1_possibility']}%), TP2={signal['tp2']} ({signal['tp2_possibility']}%), TP3={signal['tp3']} ({signal['tp3_possibility']}%)")
         return signal
@@ -166,18 +188,20 @@ async def main_loop():
         if not symbols:
             log("⚠️ No symbols loaded, exiting")
             crash_logger.warning("No symbols loaded, exiting")
+            await exchange.close()
             sys.exit(1)
 
         blacklisted_symbols = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT", "JST/USDT"]
         symbols = [s for s in symbols if s not in blacklisted_symbols]
-        sent_signals = {}
-        CONFIDENCE_THRESHOLD = 50  # High for accuracy
+        sent_signals = load_sent_signals()
+        CONFIDENCE_THRESHOLD = 45  # Reduced for more signals
         MIN_CANDLES = 30  # Avoid insufficient data
 
         while True:
             current_date = datetime.utcnow().date().isoformat()
             # Reset sent_signals for symbols from previous days
             sent_signals = {k: v for k, v in sent_signals.items() if v["date"] == current_date}
+            save_sent_signals(sent_signals)
 
             log("🔁 New Scan Cycle Started")
             crash_logger.info("New scan cycle started")
@@ -187,8 +211,11 @@ async def main_loop():
             for symbol, result in zip(symbols, results):
                 if result and isinstance(result, dict):
                     sent_signals[symbol] = {"date": current_date, "timestamp": time.time()}
+                    save_sent_signals(sent_signals)
 
             await update_signal_status()  # Await async function
+            await exchange.close()  # Close exchange to prevent resource leaks
+            exchange = await initialize_binance()  # Reinitialize for next cycle
             await asyncio.sleep(240)  # 4 minute interval
     except Exception as e:
         log(f"❌ Main loop error: {e}")
