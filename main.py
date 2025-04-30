@@ -1,6 +1,7 @@
+# main.py
 import os
 import time
-import ccxt
+import ccxt.async_support as ccxt
 import numpy as np
 from core.analysis import multi_timeframe_analysis
 from core.engine import predict_trend
@@ -15,7 +16,6 @@ import logging
 import sys
 import asyncio
 
-# Setup logging to file for crash debugging
 logging.basicConfig(
     filename="logs/crash.log",
     level=logging.INFO,
@@ -36,7 +36,7 @@ async def read_root(request: Request):
     signals = []
     try:
         with open("logs/signals_log.csv", "r") as file:
-            lines = file.readlines()[-50:]  # Last 50 signals
+            lines = file.readlines()[-50:]
             for line in lines[1:]:
                 parts = line.strip().split(",")
                 if len(parts) >= 10:
@@ -71,6 +71,7 @@ async def initialize_binance():
             'apiKey': os.getenv("BINANCE_API_KEY"),
             'secret': os.getenv("BINANCE_API_SECRET")
         })
+        await exchange.load_markets()
         log("✅ Binance exchange initialized")
         crash_logger.info("Binance exchange initialized")
         return exchange
@@ -82,14 +83,14 @@ async def initialize_binance():
 async def load_symbols(exchange):
     try:
         crash_logger.info("Loading markets")
-        markets = exchange.load_markets()
-        invalid_symbols = ['TUSD/USDT', 'USDC/USDT']  
+        markets = exchange.markets
+        invalid_symbols = ['TUSD/USDT', 'USDC/USDT']
         symbols = [
             s['symbol'] for s in markets.values()
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             and s['symbol'] not in invalid_symbols
-        ][:15]  
+        ][:15]
         log(f"✅ Loaded {len(symbols)} USDT symbols")
         crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
         return symbols
@@ -109,35 +110,35 @@ async def main_loop():
 
     blacklisted_symbols = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT"]
     symbols = [s for s in symbols if s not in blacklisted_symbols]
-    MIN_VOLUME = 3000000  
+    MIN_VOLUME = 3000000
     sent_signals = {}
-    CONFIDENCE_THRESHOLD = 50  
+    CONFIDENCE_THRESHOLD = 50
 
     while True:
         log("🔁 New Scan Cycle Started")
         crash_logger.info("New scan cycle started")
         for symbol in symbols:
             try:
-                await asyncio.sleep(0.5)  
+                await asyncio.sleep(0.5)
                 if symbol not in exchange.symbols:
                     log(f"⚠️ Symbol {symbol} not found in exchange")
                     crash_logger.warning(f"Symbol {symbol} not found in exchange")
                     continue
 
-                ticker = exchange.fetch_ticker(symbol)
+                ticker = await exchange.fetch_ticker(symbol)
                 if not ticker or ticker.get("baseVolume", 0) < MIN_VOLUME:
                     log(f"⚠️ Low volume for {symbol}: {ticker.get('baseVolume', 0)}")
                     crash_logger.warning(f"Low volume for {symbol}: {ticker.get('baseVolume', 0)}")
                     continue
 
-                result = multi_timeframe_analysis(symbol, exchange)
+                result = await multi_timeframe_analysis(symbol, exchange)
                 if not result:
                     log(f"⚠️ No valid signal for {symbol}")
                     crash_logger.warning(f"No valid signal for {symbol}")
                     continue
 
                 signal = result
-                signal['prediction'] = predict_trend(symbol, exchange)
+                signal['prediction'] = await predict_trend(symbol, exchange)
                 if signal["prediction"] not in ["LONG", "SHORT"]:
                     log(f"⚠️ Invalid prediction for {symbol}: {signal['prediction']}")
                     crash_logger.warning(f"Invalid prediction for {symbol}: {signal['prediction']}")
