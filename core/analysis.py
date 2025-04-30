@@ -24,7 +24,7 @@ def multi_timeframe_analysis(symbol, exchange):
             log(f"❌ Error in {symbol} on {tf}: {e}")
             continue
 
-    strong = [s for s in timeframe_results if s['confidence'] >= 75]
+    strong = [s for s in timeframe_results if s['confidence'] >= 60]
 
     if len(strong) >= 3:
         prices = [s["price"] for s in strong]
