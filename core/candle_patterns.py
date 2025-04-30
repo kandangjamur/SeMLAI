@@ -1,4 +1,3 @@
-# core/candle_patterns.py
 def is_bullish_engulfing(df):
     if len(df) < 2:
         return False
