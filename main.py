@@ -1,4 +1,3 @@
-# main.py
 import os
 import time
 import ccxt.async_support as ccxt
@@ -29,8 +28,8 @@ app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 templates = Jinja2Templates(directory="dashboard/templates")
 
 @app.get("/health")
-async def health_check():
-    return JSONResponse({"status": "healthy"})
+def health_check():
+    return {"status": "healthy"}
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -85,13 +84,13 @@ async def load_symbols(exchange):
     try:
         crash_logger.info("Loading markets")
         markets = exchange.markets
-        invalid_symbols = ['TUSD/USDT', 'USDC/USDT']
+        invalid_symbols = ['TUSD/USDT', 'USDC/USDT', 'BUSD/USDT', 'LUNA/USDT', 'WING/USDT']
         symbols = [
             s['symbol'] for s in markets.values()
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             and s['symbol'] not in invalid_symbols
-        ][:100]
+        ][:20]  # Increased to 20 for more signals
         log(f"✅ Loaded {len(symbols)} USDT symbols")
         crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
         return symbols
@@ -100,66 +99,97 @@ async def load_symbols(exchange):
         crash_logger.error(f"Failed to load markets: {e}")
         return []
 
+async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD):
+    try:
+        if symbol not in exchange.symbols:
+            log(f"⚠️ Symbol {symbol} not found in exchange")
+            crash_logger.warning(f"Symbol {symbol} not found in exchange")
+            return None
+
+        ticker = await exchange.fetch_ticker(symbol)
+        if not ticker or ticker.get("baseVolume", 0) < 500000:  # Lowered MIN_VOLUME
+            log(f"⚠️ Low volume for {symbol}: {ticker.get('baseVolume', 0)}")
+            crash_logger.warning(f"Low volume for {symbol}: {ticker.get('baseVolume', 0)}")
+            return None
+
+        result = await multi_timeframe_analysis(symbol, exchange)
+        if not result:
+            log(f"⚠️ No valid signal for {symbol}")
+            crash_logger.warning(f"No valid signal for {symbol}")
+            return None
+
+        signal = result
+        signal['prediction'] = await predict_trend(symbol, exchange)
+        if signal["prediction"] not in ["LONG", "SHORT"]:
+            log(f"⚠️ Invalid prediction for {symbol}: {signal['prediction']}")
+            crash_logger.warning(f"Invalid prediction for {symbol}: {signal['prediction']}")
+            signal['prediction'] = "LONG"  # Default to LONG if None
+
+        confidence = signal.get("confidence", 0)
+        if confidence < CONFIDENCE_THRESHOLD:
+            log(f"⚠️ No strong signals for {symbol}: confidence={confidence}")
+            crash_logger.warning(f"No strong signals for {symbol}: confidence={confidence}")
+            return None
+
+        signal["leverage"] = 10
+        price = signal["price"]
+        signal["tp1_possibility"] = round(min(90, 100 - abs(signal["tp1"] - price) / price * 100) if price != 0 else 80, 2)
+        signal["tp2_possibility"] = round(min(80, 95 - abs(signal["tp2"] - price) / price * 100) if price != 0 else 70, 2)
+        signal["tp3_possibility"] = round(min(70, 90 - abs(signal["tp3"] - price) / price * 100) if price != 0 else 60, 2)
+
+        await send_signal(symbol, signal)
+        log_signal_to_csv(signal)
+        log(f"✅ Signal sent for {symbol}: TP1={signal['tp1']} ({signal['tp1_possibility']}%), TP2={signal['tp2']} ({signal['tp2_possibility']}%), TP3={signal['tp3']} ({signal['tp3_possibility']}%)")
+        crash_logger.info(f"Signal sent for {symbol}: TP1={signal['tp1']} ({signal['tp1_possibility']}%), TP2={signal['tp2']} ({signal['tp2_possibility']}%), TP3={signal['tp3']} ({signal['tp3_possibility']}%)")
+        return signal
+
+    except Exception as e:
+        log(f"❌ Error with {symbol}: {e}")
+        crash_logger.error(f"Error with {symbol}: {e}")
+        return None
+
 async def main_loop():
     crash_logger.info("Starting main loop")
-    exchange = await initialize_binance()
-    symbols = await load_symbols(exchange)
-    if not symbols:
-        log("⚠️ No symbols loaded, exiting")
-        crash_logger.warning("No symbols loaded, exiting")
+    try:
+        exchange = await initialize_binance()
+        symbols = await load_symbols(exchange)
+        if not symbols:
+            log("⚠️ No symbols loaded, exiting")
+            crash_logger.warning("No symbols loaded, exiting")
+            sys.exit(1)
+
+        blacklisted_symbols = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT", "JST/USDT"]
+        symbols = [s for s in symbols if s not in blacklisted_symbols]
+        sent_signals = {}
+        CONFIDENCE_THRESHOLD = 40  # Balanced for accuracy and signal generation
+        MIN_CANDLES = 30  # Minimum candles to avoid insufficient data
+
+        while True:
+            log("🔁 New Scan Cycle Started")
+            crash_logger.info("New scan cycle started")
+            # Parallel processing of symbols
+            tasks = [process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD) for symbol in symbols]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for symbol, result in zip(symbols, results):
+                if result and isinstance(result, dict):
+                    sent_signals[symbol] = time.time()
+
+            update_signal_status()
+            await asyncio.sleep(300)  # 5 minute interval
+    except Exception as e:
+        log(f"❌ Main loop error: {e}")
+        crash_logger.error(f"Main loop error: {e}")
         sys.exit(1)
+    finally:
+        if 'exchange' in locals():
+            await exchange.close()
 
-    blacklisted_symbols = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT"]
-    symbols = [s for s in symbols if s not in blacklisted_symbols]
-    MIN_VOLUME = 1000000
-    sent_signals = {}
-    CONFIDENCE_THRESHOLD = 50
-
-    while True:
-        log("🔁 New Scan Cycle Started")
-        crash_logger.info("New scan cycle started")
-        for symbol in symbols:
-            try:
-                await asyncio.sleep(0.5)
-                if symbol not in exchange.symbols:
-                    log(f"⚠️ Symbol {symbol} not found in exchange")
-                    crash_logger.warning(f"Symbol {symbol} not found in exchange")
-                    continue
-
-                ticker = await exchange.fetch_ticker(symbol)
-                if not ticker or ticker.get("baseVolume", 0) < MIN_VOLUME:
-                    log(f"⚠️ Low volume for {symbol}: {ticker.get('baseVolume', 0)}")
-                    crash_logger.warning(f"Low volume for {symbol}: {ticker.get('baseVolume', 0)}")
-                    continue
-
-                result = await multi_timeframe_analysis(symbol, exchange)
-                if not result:
-                    log(f"⚠️ No valid signal for {symbol}")
-                    crash_logger.warning(f"No valid signal for {symbol}")
-                    continue
-
-                signal = result
-                signal['prediction'] = await predict_trend(symbol, exchange)
-                if signal["prediction"] not in ["LONG", "SHORT"]:
-                    log(f"⚠️ Invalid prediction for {symbol}: {signal['prediction']}")
-                    crash_logger.warning(f"Invalid prediction for {symbol}: {signal['prediction']}")
-                    continue
-
-                confidence = signal.get("confidence", 0)
-                if confidence < CONFIDENCE_THRESHOLD:
-                    log(f"⚠️ No strong signals for {symbol}: confidence={confidence}")
-                    crash_logger.warning(f"No strong signals for {symbol}: confidence={confidence}")
-                    continue
-
-                await send_signal(symbol, signal)
-                sent_signals[symbol] = signal
-
-            except Exception as e:
-                log(f"❌ Error in processing {symbol}: {e}")
-                crash_logger.error(f"Error in processing {symbol}: {e}")
-            await asyncio.sleep(0.5)
-
-# ✅ FastAPI startup trigger
+# FastAPI startup trigger
 @app.on_event("startup")
 async def start_background_loop():
     asyncio.create_task(main_loop())
+
+if __name__ == "__main__":
+    log("Starting CryptoSniper application")
+    crash_logger.info("Starting CryptoSniper application")
