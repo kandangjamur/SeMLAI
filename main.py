@@ -51,9 +51,9 @@ async def read_root(request: Request):
                         "confidence": parts[7],
                         "trade_type": parts[8],
                         "timestamp": parts[9],
-                        "tp1_possibility": parts[10] if len(parts) > 10 else 85,
-                        "tp2_possibility": parts[11] if len(parts) > 11 else 75,
-                        "tp3_possibility": parts[12] if len(parts) > 12 else 65
+                        "tp1_possibility": float(parts[10]) if len(parts) > 10 and parts[10] else 0,
+                        "tp2_possibility": float(parts[11]) if len(parts) > 11 and parts[11] else 0,
+                        "tp3_possibility": float(parts[12]) if len(parts) > 12 and parts[12] else 0
                     })
     except FileNotFoundError:
         log("⚠️ Signals log is empty")
@@ -90,7 +90,7 @@ async def load_symbols(exchange):
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             and s['symbol'] not in invalid_symbols
-        ][:15]  # 15 symbols for 60-70 signals/day
+        ][:12]  # Reduced to 12 to minimize API load
         log(f"✅ Loaded {len(symbols)} USDT symbols")
         crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
         return symbols
@@ -99,15 +99,22 @@ async def load_symbols(exchange):
         crash_logger.error(f"Failed to load markets: {e}")
         return []
 
-async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD):
+async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, COOLDOWN_PERIOD=1800):
     try:
+        # Check cooldown
+        if symbol in sent_signals and (time.time() - sent_signals[symbol]) < COOLDOWN_PERIOD:
+            log(f"⚠️ Skipping {symbol}: In cooldown period")
+            crash_logger.warning(f"Skipping {symbol}: In cooldown period")
+            return None
+
+        await asyncio.sleep(0.1)  # Delay to prevent API rate limit
         if symbol not in exchange.symbols:
             log(f"⚠️ Symbol {symbol} not found in exchange")
             crash_logger.warning(f"Symbol {symbol} not found in exchange")
             return None
 
         ticker = await exchange.fetch_ticker(symbol)
-        if not ticker or ticker.get("baseVolume", 0) < 1000000:  # High volume for accuracy
+        if not ticker or ticker.get("baseVolume", 0) < 1000000:
             log(f"⚠️ Low volume for {symbol}: {ticker.get('baseVolume', 0)}")
             crash_logger.warning(f"Low volume for {symbol}: {ticker.get('baseVolume', 0)}")
             return None
@@ -133,9 +140,11 @@ async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD):
 
         signal["leverage"] = 10
         price = signal["price"]
-        signal["tp1_possibility"] = round(min(95, 100 - abs(signal["tp1"] - price) / price * 100) if price != 0 else 85, 2)
-        signal["tp2_possibility"] = round(min(85, 95 - abs(signal["tp2"] - price) / price * 100) if price != 0 else 75, 2)
-        signal["tp3_possibility"] = round(min(75, 90 - abs(signal["tp3"] - price) / price * 100) if price != 0 else 65, 2)
+        # Dynamic possibility based on confidence and price movement
+        volatility_factor = max(0.5, min(2.0, confidence / 50))  # Scale with confidence
+        signal["tp1_possibility"] = round(min(95, 100 - (abs(signal["tp1"] - price) / price * 100) * volatility_factor), 2)
+        signal["tp2_possibility"] = round(min(85, 95 - (abs(signal["tp2"] - price) / price * 100) * volatility_factor * 1.2), 2)
+        signal["tp3_possibility"] = round(min(75, 90 - (abs(signal["tp3"] - price) / price * 100) * volatility_factor * 1.5), 2)
 
         await send_signal(symbol, signal)
         log_signal_to_csv(signal)
@@ -163,19 +172,20 @@ async def main_loop():
         sent_signals = {}
         CONFIDENCE_THRESHOLD = 50  # High for accuracy
         MIN_CANDLES = 30  # Avoid insufficient data
+        COOLDOWN_PERIOD = 1800  # 30 minutes cooldown
 
         while True:
             log("🔁 New Scan Cycle Started")
             crash_logger.info("New scan cycle started")
-            tasks = [process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD) for symbol in symbols]
+            tasks = [process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, COOLDOWN_PERIOD) for symbol in symbols]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for symbol, result in zip(symbols, results):
                 if result and isinstance(result, dict):
                     sent_signals[symbol] = time.time()
 
-            update_signal_status()
-            await asyncio.sleep(240)  # 4 minute interval for more cycles
+            await update_signal_status()  # Await async function
+            await asyncio.sleep(240)  # 4 minute interval
     except Exception as e:
         log(f"❌ Main loop error: {e}")
         crash_logger.error(f"Main loop error: {e}")
