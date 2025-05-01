@@ -16,6 +16,7 @@ import logging
 import sys
 import asyncio
 from datetime import datetime, timedelta
+import psutil
 
 # Logging setup
 logging.basicConfig(
@@ -92,7 +93,7 @@ async def load_symbols(exchange):
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             and s['symbol'] not in invalid_symbols
-        ][:10]  # Reduced to 10 to minimize API load
+        ][:8]  # Reduced to 8 to minimize API load
         log(f"✅ Loaded {len(symbols)} USDT symbols")
         crash_logger.info(f"Loaded {len(symbols)} USDT symbols")
         return symbols
@@ -120,15 +121,21 @@ def save_sent_signals(sent_signals):
         log(f"❌ Error saving sent_signals: {e}")
         crash_logger.error(f"Error saving sent_signals: {e}")
 
-async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, current_date):
+async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, current_date, processed_symbols):
     try:
+        # Check for duplicate processing in same cycle
+        if symbol in processed_symbols:
+            log(f"⚠️ Skipping {symbol}: Already processed in this cycle")
+            crash_logger.warning(f"Skipping {symbol}: Already processed in this cycle")
+            return None
+
         # Check if signal was sent for this symbol today
         if symbol in sent_signals and sent_signals[symbol]["date"] == current_date:
             log(f"⚠️ Skipping {symbol}: Already sent signal today")
             crash_logger.warning(f"Skipping {symbol}: Already sent signal today")
             return None
 
-        await asyncio.sleep(0.2)  # Increased delay to prevent API rate limit
+        await asyncio.sleep(0.3)  # Increased delay to prevent API rate limit
         if symbol not in exchange.symbols:
             log(f"⚠️ Symbol {symbol} not found in exchange")
             crash_logger.warning(f"Symbol {symbol} not found in exchange")
@@ -194,7 +201,7 @@ async def main_loop():
         blacklisted_symbols = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT", "JST/USDT"]
         symbols = [s for s in symbols if s not in blacklisted_symbols]
         sent_signals = load_sent_signals()
-        CONFIDENCE_THRESHOLD = 45  # Reduced for more signals
+        CONFIDENCE_THRESHOLD = 40  # Reduced for more signals
         MIN_CANDLES = 30  # Avoid insufficient data
 
         while True:
@@ -203,15 +210,25 @@ async def main_loop():
             sent_signals = {k: v for k, v in sent_signals.items() if v["date"] == current_date}
             save_sent_signals(sent_signals)
 
+            # Log memory usage
+            memory = psutil.Process().memory_info().rss / 1024 / 1024
+            log(f"🛠️ Memory usage: {memory:.2f} MB")
+            crash_logger.info(f"Memory usage: {memory:.2f} MB")
+
             log("🔁 New Scan Cycle Started")
             crash_logger.info("New scan cycle started")
-            tasks = [process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, current_date) for symbol in symbols]
+            processed_symbols = set()  # Track processed symbols in this cycle
+            tasks = [
+                process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, current_date, processed_symbols)
+                for symbol in symbols
+            ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             for symbol, result in zip(symbols, results):
                 if result and isinstance(result, dict):
                     sent_signals[symbol] = {"date": current_date, "timestamp": time.time()}
                     save_sent_signals(sent_signals)
+                processed_symbols.add(symbol)  # Mark as processed
 
             await update_signal_status()  # Await async function
             await exchange.close()  # Close exchange to prevent resource leaks
