@@ -1,6 +1,7 @@
 import numpy as np
-from utils.logger import log, crash_logger
+from utils.logger import log
 import ta
+import pandas as pd
 
 async def predict_trend(symbol, exchange):
     try:
@@ -14,34 +15,28 @@ async def predict_trend(symbol, exchange):
         highs = df["high"].values
         lows = df["low"].values
 
-        # EMA Crossover
         ema12 = ta.trend.EMAIndicator(df["close"], window=12, fillna=True).ema_indicator()
         ema26 = ta.trend.EMAIndicator(df["close"], window=26, fillna=True).ema_indicator()
         ema_cross_long = ema12.iloc[-1] > ema26.iloc[-1] and ema12.iloc[-2] <= ema26.iloc[-2]
         ema_cross_short = ema12.iloc[-1] < ema26.iloc[-1] and ema12.iloc[-2] >= ema26.iloc[-2]
 
-        # ADX for trend strength
         adx = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=14, fillna=True).adx()
         trend_strength = adx.iloc[-1] > 25
 
-        # Order Book Sentiment
         order_book = await exchange.fetch_order_book(symbol, limit=10)
         buy_pressure = sum([x[1] for x in order_book['bids']])
         sell_pressure = sum([x[1] for x in order_book['asks']])
         sentiment_long = buy_pressure > sell_pressure * 1.2
         sentiment_short = sell_pressure > buy_pressure * 1.2
 
-        # Volatility Check
         atr = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], fillna=True).average_true_range()
         if atr.iloc[-1] < atr[-10:].mean() * 0.5:
             log(f"⚠️ Low volatility for {symbol}, no trend")
             return None
 
-        # Original 3-candle check
         three_candle_long = closes[-1] > closes[-2] > closes[-3]
         three_candle_short = closes[-1] < closes[-2] < closes[-3]
 
-        # Trend Decision
         if ema_cross_long and trend_strength and sentiment_long and three_candle_long:
             log(f"✅ LONG trend detected for {symbol}")
             return "LONG"
@@ -53,5 +48,4 @@ async def predict_trend(symbol, exchange):
         return None
     except Exception as e:
         log(f"❌ Error predicting trend for {symbol}: {e}")
-        crash_logger.error(f"Error predicting trend for {symbol}: {e}")
         return None
