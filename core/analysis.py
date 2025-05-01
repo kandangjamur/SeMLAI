@@ -1,6 +1,6 @@
 import numpy as np
 from core.indicators import calculate_indicators
-from utils.logger import log, crash_logger
+from utils.logger import log
 
 TIMEFRAMES = ["15m", "1h", "4h", "1d"]
 
@@ -23,19 +23,17 @@ async def multi_timeframe_analysis(symbol, exchange):
                     log(f"⚠️ Invalid signal for {symbol} on {tf}")
             except Exception as e:
                 log(f"❌ Error in {symbol} on {tf}: {e}")
-                crash_logger.error(f"Error in {symbol} on {tf}: {e}")
                 continue
 
         strong = [s for s in timeframe_results if s['confidence'] >= 50]
 
-        # Relaxed requirement: 2+ timeframes if confidence > 60
         if len(strong) >= 3 or (len(strong) >= 2 and any(s['confidence'] > 60 for s in strong)):
             prices = [s["price"] for s in strong]
             types = set([s["trade_type"] for s in strong])
             directions = set([s["direction"] for s in strong])
             avg_conf = np.mean([s["confidence"] for s in strong])
 
-            if max(prices) - min(prices) > min(prices) * 0.025:  # Increased to 2.5%
+            if max(prices) - min(prices) > min(prices) * 0.025:
                 log(f"⚠️ Price deviation too high for {symbol} across timeframes")
                 return None
 
@@ -56,5 +54,4 @@ async def multi_timeframe_analysis(symbol, exchange):
         return None
     except Exception as e:
         log(f"❌ Error in multi_timeframe_analysis for {symbol}: {e}")
-        crash_logger.error(f"Error in multi_timeframe_analysis for {symbol}: {e}")
         return None
