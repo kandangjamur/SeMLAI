@@ -37,23 +37,23 @@ async def update_signal_status():
 
             # Check trade status
             if row['direction'] == 'LONG':
-                if current_price >= row['tp1']:
-                    df.at[index, 'status'] = 'TP1_hit'
+                if current_price >= row['tp3']:
+                    df.at[index, 'status'] = 'TP3_hit'
                 elif current_price >= row['tp2']:
                     df.at[index, 'status'] = 'TP2_hit'
-                elif current_price >= row['tp3']:
-                    df.at[index, 'status'] = 'TP3_hit'
+                elif current_price >= row['tp1']:
+                    df.at[index, 'status'] = 'TP1_hit'
                 elif current_price <= row['sl']:
                     df.at[index, 'status'] = 'SL_hit'
                 elif time_elapsed >= 5 * 3600:  # 5 hours
                     df.at[index, 'status'] = 'timeout'
             elif row['direction'] == 'SHORT':
-                if current_price <= row['tp1']:
-                    df.at[index, 'status'] = 'TP1_hit'
+                if current_price <= row['tp3']:
+                    df.at[index, 'status'] = 'TP3_hit'
                 elif current_price <= row['tp2']:
                     df.at[index, 'status'] = 'TP2_hit'
-                elif current_price <= row['tp3']:
-                    df.at[index, 'status'] = 'TP3_hit'
+                elif current_price <= row['tp1']:
+                    df.at[index, 'status'] = 'TP1_hit'
                 elif current_price >= row['sl']:
                     df.at[index, 'status'] = 'SL_hit'
                 elif time_elapsed >= 5 * 3600:  # 5 hours
