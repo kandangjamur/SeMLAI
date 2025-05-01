@@ -4,7 +4,7 @@ from utils.support_resistance import detect_sr_levels
 from utils.fibonacci import calculate_fibonacci_levels
 from core.candle_patterns import is_bullish_engulfing, is_breakout_candle
 import numpy as np
-from utils.logger import log, crash_logger
+from utils.logger import log
 
 def calculate_indicators(symbol, ohlcv):
     try:
@@ -57,7 +57,7 @@ def calculate_indicators(symbol, ohlcv):
             confidence += 15 if latest["rsi"] > 55 else 0
             confidence += 15 if latest["macd"] > latest["macd_signal"] else 0
             confidence += 10 if not np.isnan(latest["adx"]) and latest["adx"] > 20 else 0
-            confidence += 10 if latest["stoch_rsi"] < 0.3 else 0  # Relaxed from 0.2
+            confidence += 10 if latest["stoch_rsi"] < 0.3 else 0
             confidence += 10 if is_bullish_engulfing(df) else 0
             confidence += 10 if is_breakout_candle(df) else 0
             confidence += 10 if latest["close"] > latest["vwap"] else 0
@@ -118,7 +118,6 @@ def calculate_indicators(symbol, ohlcv):
 
     except Exception as e:
         log(f"❌ Error calculating indicators for {symbol}: {e}")
-        crash_logger.error(f"Error calculating indicators for {symbol}: {e}")
         return None
 
 def calculate_vwap(df):
