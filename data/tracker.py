@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 import ccxt.async_support as ccxt
-from utils.logger import log, crash_logger
+from utils.logger import log
 import json
 from datetime import datetime
 
@@ -35,7 +35,6 @@ async def update_signal_status():
             timestamp = pd.to_datetime(row['timestamp']).timestamp()
             time_elapsed = datetime.utcnow().timestamp() - timestamp
 
-            # Check trade status
             if row['direction'] == 'LONG':
                 if current_price >= row['tp3']:
                     df.at[index, 'status'] = 'TP3_hit'
@@ -45,7 +44,7 @@ async def update_signal_status():
                     df.at[index, 'status'] = 'TP1_hit'
                 elif current_price <= row['sl']:
                     df.at[index, 'status'] = 'SL_hit'
-                elif time_elapsed >= 5 * 3600:  # 5 hours
+                elif time_elapsed >= 5 * 3600:
                     df.at[index, 'status'] = 'timeout'
             elif row['direction'] == 'SHORT':
                 if current_price <= row['tp3']:
@@ -56,10 +55,9 @@ async def update_signal_status():
                     df.at[index, 'status'] = 'TP1_hit'
                 elif current_price >= row['sl']:
                     df.at[index, 'status'] = 'SL_hit'
-                elif time_elapsed >= 5 * 3600:  # 5 hours
+                elif time_elapsed >= 5 * 3600:
                     df.at[index, 'status'] = 'timeout'
 
-            # If trade is closed, remove from sent_signals
             if df.at[index, 'status'] in ['TP1_hit', 'TP2_hit', 'TP3_hit', 'SL_hit', 'timeout']:
                 symbol = row['symbol']
                 if symbol in sent_signals and sent_signals[symbol]["date"] == datetime.utcnow().date().isoformat():
@@ -69,7 +67,6 @@ async def update_signal_status():
 
         except Exception as e:
             log(f"❌ Error updating status for {row['symbol']}: {e}")
-            crash_logger.error(f"Error updating status for {row['symbol']}: {e}")
 
     df.to_csv(filename, index=False)
     log("📝 Signal statuses updated")
@@ -82,7 +79,6 @@ def load_sent_signals():
         return {}
     except Exception as e:
         log(f"❌ Error loading sent_signals: {e}")
-        crash_logger.error(f"Error loading sent_signals: {e}")
         return {}
 
 def save_sent_signals(sent_signals):
@@ -91,4 +87,3 @@ def save_sent_signals(sent_signals):
             json.dump(sent_signals, f)
     except Exception as e:
         log(f"❌ Error saving sent_signals: {e}")
-        crash_logger.error(f"Error saving sent_signals: {e}")
