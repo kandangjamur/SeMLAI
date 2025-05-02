@@ -9,9 +9,8 @@ from core.candle_patterns import is_bullish_engulfing, is_breakout_candle, is_be
 
 def calculate_indicators(symbol, ohlcv):
     try:
-        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        df = df.dropna()
-        if len(df) < 50:
+        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"]).dropna()
+        if len(df) < 50 or df["close"].std() <= 0 or df["volume"].mean() < 1000:
             return None
 
         df["ema_20"] = ta.trend.EMAIndicator(df["close"], 20).ema_indicator()
