@@ -3,22 +3,14 @@ import os
 from datetime import datetime
 import pandas as pd
 
-# General app log
-def log(message):
+def log(message, level='INFO'):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_entry = f"[{timestamp}] {message}"
-    print(log_entry)
+    if level == 'INFO':
+        print(log_entry)
     with open("logs/app.log", "a") as f:
         f.write(log_entry + "\n")
 
-# Crash log setup for logging critical errors
-crash_logger = logging.getLogger("crash")
-crash_logger.setLevel(logging.INFO)
-crash_handler = logging.FileHandler("logs/crash.log")
-crash_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-crash_logger.addHandler(crash_handler)
-
-# Log signal to CSV
 def log_signal_to_csv(signal):
     try:
         csv_path = "logs/signals_log.csv"
@@ -42,10 +34,13 @@ def log_signal_to_csv(signal):
 
         if os.path.exists(csv_path):
             old_df = pd.read_csv(csv_path)
-            df = pd.concat([old_df, df], ignore_index=True)
+            if not df.empty and not df.isna().all().all():
+                df = pd.concat([old_df, df], ignore_index=True)
 
-        df.to_csv(csv_path, index=False)
-        log(f"📝 Signal logged to CSV for {signal.get('symbol', '')}")
+        if not df.empty and not df.isna().all().all():
+            df.to_csv(csv_path, index=False)
+            log(f"📝 Signal logged to CSV for {signal.get('symbol', '')}")
+        else:
+            log("⚠️ No valid data to log to CSV")
     except Exception as e:
         log(f"❌ Error logging signal to CSV: {e}")
-        crash_logger.error(f"Error logging signal to CSV: {e}")
