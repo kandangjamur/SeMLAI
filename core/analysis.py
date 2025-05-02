@@ -11,7 +11,8 @@ async def multi_timeframe_analysis(symbol, exchange):
         for tf in TIMEFRAMES:
             try:
                 ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
-                if not ohlcv or len(ohlcv) < 50: continue
+                if not ohlcv or len(ohlcv) < 50:
+                    continue
                 signal = calculate_indicators(symbol, ohlcv)
                 if signal and not np.isnan(signal.get("confidence", 0)):
                     signal["timeframe"] = tf
@@ -25,12 +26,10 @@ async def multi_timeframe_analysis(symbol, exchange):
             prices = [s["price"] for s in strong]
             if max(prices) - min(prices) > min(prices) * 0.025:
                 return None
-
             types = set(s["trade_type"] for s in strong)
             directions = set(s["direction"] for s in strong)
             if len(types) > 1 or len(directions) > 1:
                 return None
-
             best = max(strong, key=lambda s: s["confidence"])
             best["confidence"] = round(np.mean([s["confidence"] for s in strong]), 2)
             log(f"✅ Strong multi-timeframe signal for {symbol}: {best['direction']}, {best['confidence']}")
