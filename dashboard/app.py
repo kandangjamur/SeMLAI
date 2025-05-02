@@ -31,17 +31,19 @@ def calculate_indicators(symbol, ohlcv):
     confidence = 0
 
     if latest["ema_20"] > latest["ema_50"]:
+        confidence += 25
+    if latest["rsi"] > 60 and latest["volume"] > 1.5 * latest["volume_sma"]:
         confidence += 20
-    if latest["rsi"] > 55 and latest["volume"] > 1.5 * latest["volume_sma"]:
-        confidence += 15
     if latest["macd"] > latest["macd_signal"]:
+        confidence += 20
+    if pd.notna(latest["adx"]) and latest["adx"] > 25:
         confidence += 15
-    if pd.notna(latest["adx"]) and latest["adx"] > 20:
+    if latest["stoch_rsi"] < 0.25:
         confidence += 10
-    if latest["stoch_rsi"] < 0.2:
-        confidence += 10
-    if is_bullish_engulfing(df): confidence += 10
-    if is_breakout_candle(df): confidence += 10
+    if is_bullish_engulfing(df):
+        confidence += 15
+    if is_breakout_candle(df, direction="LONG"):
+        confidence += 15
 
     price = latest["close"]
     atr = latest["atr"]
@@ -51,20 +53,16 @@ def calculate_indicators(symbol, ohlcv):
     midpoint = round((support + resistance) / 2, 3) if support and resistance else None
 
     fib = calculate_fibonacci_levels(price, direction="LONG")
-    tp1 = round(fib.get("tp1", price + atr * 2), 3)
-    tp2 = round(fib.get("tp2", price + atr * 3.5), 3)
-    tp3 = round(fib.get("tp3", price + atr * 5), 3)
-    sl = round(support if support else price - atr * 1.8, 3)
+    tp1 = round(fib.get("tp1", price + atr * 1.2), 3)
+    tp2 = round(fib.get("tp2", price + atr * 2.0), 3)
+    tp3 = round(fib.get("tp3", price + atr * 3.0), 3)
+    sl = round(support if support else price - atr * 0.8, 3)
 
-    if confidence < 75:
+    if confidence < 85:
         return None
 
-    trade_type = (
-        "Scalping" if 75 <= confidence < 85 else
-        "Normal" if confidence >= 85 else "Spot"
-    )
-
-    leverage = min(max(int(confidence / 2), 3), 50)
+    trade_type = "Normal" if confidence >= 85 else "Scalping"
+    leverage = 10
 
     return {
         "symbol": symbol,
@@ -83,22 +81,20 @@ def calculate_indicators(symbol, ohlcv):
         "midpoint": midpoint
     }
 
-def calculate_dynamic_possibilities(confidence, distance_tp1, distance_tp2, distance_tp3):
-    # Dynamic calculation based on confidence
-    tp1_possibility = min(100, max(50, confidence * (1 - distance_tp1 / 100)))
-    tp2_possibility = min(100, max(50, confidence * (1 - distance_tp2 / 100)))
-    tp3_possibility = min(100, max(50, confidence * (1 - distance_tp3 / 100)))
-    
+def calculate_dynamic_possibilities(confidence, distance_tp1, distance_tp2, distance_tp3, atr, price):
+    volatility_factor = atr / price
+    tp1_possibility = round(min(95, confidence + 5 if volatility_factor < 0.02 else confidence), 1)
+    tp2_possibility = round(min(85, confidence - 5 if volatility_factor < 0.02 else confidence - 10), 1)
+    tp3_possibility = round(min(75, confidence - 15 if volatility_factor < 0.02 else confidence - 20), 1)
     return tp1_possibility, tp2_possibility, tp3_possibility
 
 def predict_trend(symbol, ohlcv):
     closes = [c[4] for c in ohlcv]
-    # Predict based on the trend
     if closes[-1] > closes[-2] > closes[-3]:
         return "LONG"
     elif closes[-1] < closes[-2] < closes[-3]:
         return "SHORT"
-    return "NEUTRAL"  # Remove Neutral in the prediction logic if you want to ensure long/short only
+    return None
 
 def generate_trade_signal(symbol, ohlcv, exchange):
     indicators = calculate_indicators(symbol, ohlcv)
@@ -106,29 +102,27 @@ def generate_trade_signal(symbol, ohlcv, exchange):
         return None
 
     confidence = indicators["confidence"]
+    if confidence < 85:
+        return None
 
-    if confidence < 50:
-        return None  # Discard low-confidence signals
+    price = indicators["price"]
+    atr = indicators["atr"]
+    distance_tp1 = abs(indicators["tp1"] - price)
+    distance_tp2 = abs(indicators["tp2"] - price)
+    distance_tp3 = abs(indicators["tp3"] - price)
 
-    # Calculate dynamic possibilities
-    distance_tp1 = indicators["tp1"] - indicators["price"]
-    distance_tp2 = indicators["tp2"] - indicators["price"]
-    distance_tp3 = indicators["tp3"] - indicators["price"]
-    
     tp1_possibility, tp2_possibility, tp3_possibility = calculate_dynamic_possibilities(
-        confidence, distance_tp1, distance_tp2, distance_tp3
+        confidence, distance_tp1, distance_tp2, distance_tp3, atr, price
     )
 
-    # Prediction now based on the dynamic conditions
     prediction = predict_trend(symbol, ohlcv)
-    if prediction == "NEUTRAL":
-        return None  # Avoid sending neutral signals
+    if not prediction:
+        return None
 
-    # Return the dynamic signal format
     signal = {
         "symbol": indicators["symbol"],
         "confidence": confidence,
-        "prediction": prediction,  # Direction based on trend
+        "prediction": prediction,
         "trade_type": indicators["trade_type"],
         "price": indicators["price"],
         "tp1": indicators["tp1"],
