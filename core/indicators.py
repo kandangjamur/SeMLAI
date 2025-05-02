@@ -29,15 +29,9 @@ def calculate_indicators(symbol, ohlcv):
         df["vwap"] = calculate_vwap(df)
 
         try:
-            if (df['high'] - df['low']).eq(0).any() or df['close'].eq(0).any():
-                df["adx"] = np.nan
-            else:
-                adx = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=14, fillna=True).adx()
-                if adx.isna().all() or adx.eq(0).all():
-                    df["adx"] = np.nan
-                else:
-                    df["adx"] = adx
-        except Exception as e:
+            adx = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=14, fillna=True).adx()
+            df["adx"] = adx if not adx.isna().all() else np.nan
+        except:
             df["adx"] = np.nan
 
         df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"], fillna=True).stochrsi_k()
@@ -81,10 +75,9 @@ def calculate_indicators(symbol, ohlcv):
         support = sr.get("support")
         resistance = sr.get("resistance")
 
-        sl = round(support if support and direction == "LONG" else resistance if resistance and direction == "SHORT" else price - atr * 0.8 if direction == "LONG" else price + atr * 0.8, 4)
+        sl = round(support if direction == "LONG" else resistance if resistance else (price - atr * 0.8 if direction == "LONG" else price + atr * 0.8), 4)
         trade_type = "Normal" if confidence >= 85 else "Scalping"
         leverage = 10
-        possibility = min(confidence + 5, 95)
 
         signal = {
             "symbol": symbol,
@@ -100,8 +93,7 @@ def calculate_indicators(symbol, ohlcv):
             "atr": atr,
             "leverage": leverage,
             "support": support,
-            "resistance": resistance,
-            "possibility": possibility
+            "resistance": resistance
         }
 
         log(f"Indicators calculated for {symbol}: direction={direction}, confidence={confidence}")
