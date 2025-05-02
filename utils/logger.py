@@ -1,4 +1,3 @@
-import logging
 import os
 from datetime import datetime
 import pandas as pd
@@ -6,7 +5,7 @@ import pandas as pd
 def log(message, level='INFO'):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     log_entry = f"[{timestamp}] {message}"
-    if level == 'INFO':
+    if level in ['INFO', 'ERROR']:
         print(log_entry)
     with open("logs/app.log", "a") as f:
         f.write(log_entry + "\n")
@@ -39,8 +38,8 @@ def log_signal_to_csv(signal):
 
         if not df.empty and not df.isna().all().all():
             df.to_csv(csv_path, index=False)
-            log(f"📝 Signal logged to CSV for {signal.get('symbol', '')}")
+            log(f"Signal logged to CSV for {signal.get('symbol', '')}")
         else:
-            log("⚠️ No valid data to log to CSV")
+            log("No valid data to log to CSV", level='ERROR')
     except Exception as e:
-        log(f"❌ Error logging signal to CSV: {e}")
+        log(f"Error logging signal to CSV: {e}", level='ERROR')
