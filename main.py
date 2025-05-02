@@ -1,3 +1,4 @@
+# main.py
 import os
 import time
 import json
@@ -10,21 +11,16 @@ from telebot.bot import send_signal
 from data.tracker import update_signal_status
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 import logging
 import sys
 import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 import psutil
 import pandas as pd
 
-logging.basicConfig(
-    filename="logs/crash.log",
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
+logging.basicConfig(filename="logs/crash.log", level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 templates = Jinja2Templates(directory="dashboard/templates")
@@ -57,8 +53,6 @@ async def read_root(request: Request):
                         "tp2_possibility": float(parts[11]) if len(parts) > 11 and parts[11] else 0,
                         "tp3_possibility": float(parts[12]) if len(parts) > 12 and parts[12] else 0
                     })
-    except FileNotFoundError:
-        log("Signals log is empty")
     except Exception as e:
         log(f"Error reading signals log: {e}")
     return templates.TemplateResponse("dashboard.html", {"request": request, "signals": signals})
@@ -80,10 +74,9 @@ async def initialize_binance():
 
 async def load_symbols(exchange):
     try:
-        markets = exchange.markets
         invalid_symbols = ['TUSD/USDT', 'USDC/USDT', 'BUSD/USDT', 'LUNA/USDT', 'WING/USDT']
         symbols = [
-            s['symbol'] for s in markets.values()
+            s['symbol'] for s in exchange.markets.values()
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
             and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             and s['symbol'] not in invalid_symbols
@@ -91,175 +84,98 @@ async def load_symbols(exchange):
         log(f"Loaded {len(symbols)} USDT symbols")
         return symbols
     except Exception as e:
-        log(f"Failed to load markets: {e}")
+        log(f"Failed to load symbols: {e}")
         return []
 
 def load_sent_signals():
     try:
         with open("logs/sent_signals.json", "r") as f:
             return json.load(f)
-    except FileNotFoundError:
-        return {}
-    except Exception as e:
-        log(f"Error loading sent_signals: {e}")
+    except:
         return {}
 
-def save_sent_signals(sent_signals):
+def save_sent_signals(data):
     try:
         with open("logs/sent_signals.json", "w") as f:
-            json.dump(sent_signals, f)
+            json.dump(data, f)
     except Exception as e:
         log(f"Error saving sent_signals: {e}")
 
-async def get_last_direction(symbol, exchange):
+async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, today, processed):
     try:
-        if not os.path.exists("logs/signals_log.csv"):
+        if symbol in processed or symbol in sent_signals and sent_signals[symbol]["date"] == today:
             return None
-        df = pd.read_csv("logs/signals_log.csv")
-        df = df[df["symbol"] == symbol]
-        if df.empty:
-            return None
-        last_row = df.iloc[-1]
-        direction = last_row["direction"]
-        tp1 = float(last_row["tp1"])
-        tp2 = float(last_row["tp2"])
-        tp3 = float(last_row["tp3"])
-        sl = float(last_row["sl"])
-        entry_price = float(last_row["price"])
-        timestamp = pd.to_datetime(last_row["timestamp"]).timestamp()
 
+        await asyncio.sleep(0.5)
         ticker = await exchange.fetch_ticker(symbol)
-        current_price = ticker["last"]
-        time_elapsed = time.time() - timestamp
-
-        if direction == "LONG":
-            if current_price >= tp1 or current_price >= tp2 or current_price >= tp3 or current_price <= sl or time_elapsed >= 5 * 3600:
-                return None
-        elif direction == "SHORT":
-            if current_price <= tp1 or current_price <= tp2 or current_price <= tp3 or current_price >= sl or time_elapsed >= 5 * 3600:
-                return None
-        return direction, tp1, entry_price
-    except Exception as e:
-        log(f"Error checking last direction for {symbol}: {e}")
-        return None
-
-async def process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, current_date, processed_symbols):
-    try:
-        if symbol in processed_symbols:
+        if ticker.get("baseVolume", 0) < 100000:
             return None
 
-        if symbol in sent_signals and sent_signals[symbol]["date"] == current_date:
+        signal = await multi_timeframe_analysis(symbol, exchange)
+        if not signal:
             return None
 
-        await asyncio.sleep(0.6)  # Increased to avoid rate limit
-        if symbol not in exchange.symbols:
-            return None
-
-        ticker = await exchange.fetch_ticker(symbol)
-        if not ticker or ticker.get("baseVolume", 0) < 100000:  # Relaxed volume threshold
-            return None
-
-        result = await multi_timeframe_analysis(symbol, exchange)
-        if not result:
-            return None
-
-        signal = result
         signal['prediction'] = await predict_trend(symbol, exchange)
-        if signal["prediction"] not in ["LONG", "SHORT"]:
-            signal['prediction'] = "LONG"
-
-        last_info = await get_last_direction(symbol, exchange)
-        if last_info:
-            last_dir, tp1, entry_price = last_info
-            if last_dir == "LONG" and signal["prediction"] == "SHORT":
-                return None
-            if last_dir == "SHORT" and signal["prediction"] == "LONG":
-                return None
+        if signal['prediction'] not in ["LONG", "SHORT"]:
+            return None
 
         confidence = signal.get("confidence", 0)
         if confidence < CONFIDENCE_THRESHOLD:
             return None
 
-        signal["leverage"] = 10
-        signal["direction"] = signal["prediction"]
         price = signal["price"]
         atr = signal.get("atr", 0.01)
-        distance_tp1 = abs(signal["tp1"] - price) / price
-        distance_tp2 = abs(signal["tp2"] - price) / price
-        distance_tp3 = abs(signal["tp3"] - price) / price
-        volatility_factor = atr / price
-        signal["tp1_possibility"] = round(min(95, confidence + 5 if volatility_factor < 0.02 else confidence), 1)
-        signal["tp2_possibility"] = round(min(85, confidence - 5 if volatility_factor < 0.02 else confidence - 10), 1)
-        signal["tp3_possibility"] = round(min(75, confidence - 15 if volatility_factor < 0.02 else confidence - 20), 1)
+        v = max(0.5, min(2.0, confidence / 50))
+        signal["tp1_possibility"] = round(min(95, 100 - (abs(signal["tp1"] - price) / price * 100) * v), 2)
+        signal["tp2_possibility"] = round(min(85, 95 - (abs(signal["tp2"] - price) / price * 100) * v * 1.2), 2)
+        signal["tp3_possibility"] = round(min(75, 90 - (abs(signal["tp3"] - price) / price * 100) * v * 1.5), 2)
+
+        signal["direction"] = signal["prediction"]
+        signal["leverage"] = 10
 
         await send_signal(symbol, signal)
         log_signal_to_csv(signal)
         sent_signals[symbol] = {
-            "date": current_date,
+            "date": today,
             "timestamp": time.time(),
             "direction": signal["prediction"]
         }
         save_sent_signals(sent_signals)
-        log(f"Signal sent for {symbol}: {signal['prediction']}, TP1={signal['tp1']} ({signal['tp1_possibility']}%), TP2={signal['tp2']} ({signal['tp2_possibility']}%), TP3={signal['tp3']} ({signal['tp3_possibility']}%)")
+        log(f"Signal sent for {symbol}: {signal['prediction']} ({confidence})")
         return signal
     except Exception as e:
-        log(f"Error with {symbol}: {e}")
+        log(f"Error in process_symbol({symbol}): {e}")
         return None
 
 async def main_loop():
     try:
         exchange = await initialize_binance()
-        symbols = await load_symbols(exchange)
-        if not symbols:
-            log("No symbols loaded, exiting")
-            await exchange.close()
-            sys.exit(1)
-
-        blacklisted = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT", "JST/USDT"]
-        symbols = [s for s in symbols if s not in blacklisted]
-        sent_signals = load_sent_signals()
-        CONFIDENCE_THRESHOLD = 75  # Relaxed for more signals
+        CONFIDENCE_THRESHOLD = 70
 
         while True:
-            current_date = datetime.utcnow().date().isoformat()
-            sent_signals = {k: v for k, v in sent_signals.items() if v["date"] == current_date}
+            symbols = await load_symbols(exchange)
+            sent_signals = load_sent_signals()
+            today = datetime.utcnow().date().isoformat()
+            sent_signals = {k: v for k, v in sent_signals.items() if v["date"] == today}
             save_sent_signals(sent_signals)
 
-            memory = psutil.Process().memory_info().rss / 1024 / 1024
-            log(f"Memory usage: {memory:.2f} MB")
+            log(f"Memory usage: {psutil.Process().memory_info().rss / 1024 / 1024:.2f} MB")
             log("New Scan Cycle Started")
 
-            processed_symbols = set()
-            tasks = [
-                process_symbol(symbol, exchange, CONFIDENCE_THRESHOLD, sent_signals, current_date, processed_symbols)
-                for symbol in symbols
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for symbol, result in zip(symbols, results):
-                if result and isinstance(result, dict):
-                    sent_signals[symbol] = {
-                        "date": current_date,
-                        "timestamp": time.time(),
-                        "direction": result["prediction"]
-                    }
-                    save_sent_signals(sent_signals)
-                processed_symbols.add(symbol)
-
+            processed = set()
+            tasks = [process_symbol(s, exchange, CONFIDENCE_THRESHOLD, sent_signals, today, processed) for s in symbols]
+            await asyncio.gather(*tasks, return_exceptions=True)
             await update_signal_status()
+
             await exchange.close()
             exchange = await initialize_binance()
             await asyncio.sleep(240)
     except Exception as e:
         log(f"Main loop error: {e}")
-        sys.exit(1)
     finally:
         if 'exchange' in locals():
             await exchange.close()
 
 @app.on_event("startup")
-async def start_background_loop():
+async def start_background():
     asyncio.create_task(main_loop())
-
-if __name__ == "__main__":
-    log("Starting CryptoSniper application")
