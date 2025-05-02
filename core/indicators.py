@@ -14,11 +14,9 @@ def calculate_indicators(symbol, ohlcv):
         df = df[df['high'] > df['low']]
 
         if len(df) < 50:
-            log(f"⚠️ Insufficient valid data for {symbol}: {len(df)} rows")
             return None
 
         if df['close'].std() <= 0 or df['volume'].mean() < 1000:
-            log(f"⚠️ Low volatility or volume for {symbol}: std={df['close'].std()}, avg_volume={df['volume'].mean()}")
             return None
 
         df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20, fillna=True).ema_indicator()
@@ -32,17 +30,14 @@ def calculate_indicators(symbol, ohlcv):
 
         try:
             if (df['high'] - df['low']).eq(0).any() or df['close'].eq(0).any():
-                log(f"⚠️ Invalid data for ADX calculation for {symbol}")
                 df["adx"] = np.nan
             else:
                 adx = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=14, fillna=True).adx()
                 if adx.isna().all() or adx.eq(0).all():
-                    log(f"⚠️ ADX returned invalid values for {symbol}")
                     df["adx"] = np.nan
                 else:
                     df["adx"] = adx
         except Exception as e:
-            log(f"⚠️ ADX calculation failed for {symbol}: {e}")
             df["adx"] = np.nan
 
         df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"], fillna=True).stochrsi_k()
@@ -51,21 +46,19 @@ def calculate_indicators(symbol, ohlcv):
         direction = "LONG" if latest["ema_20"] > latest["ema_50"] else "SHORT"
         confidence = 0
 
-        # LONG conditions
         if direction == "LONG":
             confidence += 25 if latest["ema_20"] > latest["ema_50"] else 0
-            confidence += 20 if latest["rsi"] > 60 else 0  # Stricter RSI
+            confidence += 20 if latest["rsi"] > 60 else 0
             confidence += 20 if latest["macd"] > latest["macd_signal"] else 0
-            confidence += 15 if not np.isnan(latest["adx"]) and latest["adx"] > 25 else 0  # Stricter ADX
+            confidence += 15 if not np.isnan(latest["adx"]) and latest["adx"] > 25 else 0
             confidence += 10 if latest["stoch_rsi"] < 0.25 else 0
             confidence += 15 if is_bullish_engulfing(df) else 0
             confidence += 15 if is_breakout_candle(df, direction="LONG") else 0
             confidence += 10 if latest["close"] > latest["vwap"] else 0
             confidence += 20 if calculate_rsi_divergence(df["close"], df["rsi"]) else 0
-        # SHORT conditions
         else:
             confidence += 25 if latest["ema_20"] < latest["ema_50"] else 0
-            confidence += 20 if latest["rsi"] < 40 else 0  # Stricter RSI
+            confidence += 20 if latest["rsi"] < 40 else 0
             confidence += 20 if latest["macd"] < latest["macd_signal"] else 0
             confidence += 15 if not np.isnan(latest["adx"]) and latest["adx"] > 25 else 0
             confidence += 10 if latest["stoch_rsi"] > 0.75 else 0
@@ -75,7 +68,6 @@ def calculate_indicators(symbol, ohlcv):
             confidence += 20 if calculate_rsi_divergence(df["close"], df["rsi"]) else 0
 
         if latest["atr"] < df["atr"][-10:].mean() * 0.5:
-            log(f"⚠️ Low volatility for {symbol}: atr={latest['atr']}")
             return None
 
         price = latest["close"]
@@ -112,11 +104,11 @@ def calculate_indicators(symbol, ohlcv):
             "possibility": possibility
         }
 
-        log(f"✅ Indicators calculated for {symbol}: direction={direction}, confidence={confidence}")
+        log(f"Indicators calculated for {symbol}: direction={direction}, confidence={confidence}")
         return signal
 
     except Exception as e:
-        log(f"❌ Error calculating indicators for {symbol}: {e}")
+        log(f"Error calculating indicators for {symbol}: {e}")
         return None
 
 def calculate_vwap(df):
