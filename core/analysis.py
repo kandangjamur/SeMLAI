@@ -1,45 +1,51 @@
-import pandas as pd
+import ccxt.async_support as ccxt
 from core.indicators import calculate_indicators
+from utils.logger import logger
 
-def analyze_symbol(df_15m, df_1h, df_4h, df_1d):
-    df_15m = calculate_indicators(df_15m)
-    df_1h = calculate_indicators(df_1h)
-    df_4h = calculate_indicators(df_4h)
-    df_1d = calculate_indicators(df_1d)
+async def get_valid_symbols():
+    exchange = ccxt.binance()
+    try:
+        markets = await exchange.load_markets()
+        usdt_pairs = [s for s in markets if s.endswith("/USDT") and markets[s]['active']]
+        return usdt_pairs[:100]
+    finally:
+        await exchange.close()
 
-    if (
-        df_15m is None or df_1h is None or
-        df_4h is None or df_1d is None or
-        df_15m.empty or df_1h.empty or
-        df_4h.empty or df_1d.empty
-    ):
-        return None
-
-    signal = {"signal": "none", "confidence": 0}
-
-    for df in [df_15m, df_1h, df_4h, df_1d]:
-        if df is None or df.empty or 'close' not in df.columns:
+async def analyze_symbol(symbol: str):
+    exchange = ccxt.binance()
+    try:
+        ohlcv_1h = await exchange.fetch_ohlcv(symbol, timeframe="1h", limit=100)
+        ohlcv_15m = await exchange.fetch_ohlcv(symbol, timeframe="15m", limit=100)
+        if not ohlcv_1h or not ohlcv_15m:
+            return None
+        df = await calculate_indicators(symbol, ohlcv_15m, ohlcv_1h)
+        if df is None or df.empty:
             return None
 
-    conditions = []
+        latest = df.iloc[-1]
+        direction = latest["direction"]
+        confidence = latest["confidence"]
+        tp_possibility = latest["tp_possibility"]
 
-    if (
-        df_15m['RSI'].iloc[-1] > 50 and
-        df_1h['RSI'].iloc[-1] > 50 and
-        df_4h['RSI'].iloc[-1] > 50 and
-        df_1d['RSI'].iloc[-1] > 50
-    ):
-        signal['signal'] = "long"
-        conditions.append("RSI>50")
+        if direction not in ["LONG", "SHORT"]:
+            return None
 
-    elif (
-        df_15m['RSI'].iloc[-1] < 50 and
-        df_1h['RSI'].iloc[-1] < 50 and
-        df_4h['RSI'].iloc[-1] < 50 and
-        df_1d['RSI'].iloc[-1] < 50
-    ):
-        signal['signal'] = "short"
-        conditions.append("RSI<50")
+        formatted = (
+            f"<b>{symbol}</b>\n"
+            f"Direction: <b>{direction}</b>\n"
+            f"Confidence: <b>{confidence:.2f}</b>\n"
+            f"TP Possibility: <b>{tp_possibility}</b>"
+        )
 
-    signal['confidence'] = len(conditions) * 25
-    return signal if signal['signal'] != "none" else None
+        return {
+            "symbol": symbol,
+            "direction": direction,
+            "confidence": confidence,
+            "tp_possibility": tp_possibility,
+            "formatted": formatted
+        }
+    except Exception as e:
+        logger.error(f"Error analyzing {symbol}: {e}")
+        return None
+    finally:
+        await exchange.close()
