@@ -1,65 +1,83 @@
-# core/indicators.py
-import pandas as pd
+import ccxt.async_support as ccxt
 import numpy as np
+import pandas as pd
 import ta
-from utils.logger import log
-from utils.support_resistance import detect_sr_levels
-from utils.fibonacci import calculate_fibonacci_levels
-from core.candle_patterns import is_bullish_engulfing, is_breakout_candle, is_bearish_engulfing
+from utils.logger import setup_logger
 
-def calculate_indicators(symbol, ohlcv):
+logger = setup_logger("indicators")
+
+exchange = ccxt.binance({'enableRateLimit': True, 'rateLimit': 1200})
+
+async def get_binance_exchange():
+    return exchange
+
+async def get_usdt_symbols(exchange):
     try:
-        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        df = df.dropna()
-        if len(df) < 50:
+        markets = await exchange.load_markets()
+        symbols = [s for s in markets if s.endswith("/USDT") and markets[s]["active"]]
+        valid = []
+
+        for symbol in symbols:
+            try:
+                ohlcv = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=10)
+                if ohlcv:
+                    valid.append(symbol)
+            except Exception:
+                continue
+
+        return valid
+    except Exception as e:
+        logger.error(f"Failed to fetch symbols: {e}")
+        return []
+
+def add_indicators(df):
+    df['rsi'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
+    macd = ta.trend.MACD(close=df['close'])
+    df['macd'] = macd.macd()
+    df['macd_signal'] = macd.macd_signal()
+    df['ema50'] = ta.trend.EMAIndicator(close=df['close'], window=50).ema_indicator()
+    df['ema200'] = ta.trend.EMAIndicator(close=df['close'], window=200).ema_indicator()
+    return df
+
+def evaluate_signal(df):
+    latest = df.iloc[-1]
+    signal = None
+    confidence = 0
+    tp_possibility = "LOW"
+
+    if latest['ema50'] > latest['ema200'] and latest['macd'] > latest['macd_signal'] and latest['rsi'] < 70:
+        signal = "LONG"
+    elif latest['ema50'] < latest['ema200'] and latest['macd'] < latest['macd_signal'] and latest['rsi'] > 30:
+        signal = "SHORT"
+
+    if signal:
+        confidence += 20 if abs(latest['ema50'] - latest['ema200']) > 0.5 else 10
+        confidence += 20 if abs(latest['macd'] - latest['macd_signal']) > 0.5 else 10
+        confidence += 10 if 40 < latest['rsi'] < 60 else 5
+
+        if confidence >= 70:
+            tp_possibility = "HIGH"
+        elif confidence >= 50:
+            tp_possibility = "MEDIUM"
+
+    return signal, confidence, tp_possibility
+
+async def calculate_indicators(exchange, symbol):
+    try:
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe='15m', limit=200)
+        if not ohlcv:
             return None
 
-        df["ema_20"] = ta.trend.EMAIndicator(df["close"], 20).ema_indicator()
-        df["ema_50"] = ta.trend.EMAIndicator(df["close"], 50).ema_indicator()
-        df["rsi"] = ta.momentum.RSIIndicator(df["close"], 14).rsi()
-        macd = ta.trend.MACD(df["close"])
-        df["macd"] = macd.macd()
-        df["macd_signal"] = macd.macd_signal()
-        df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"]).average_true_range()
-        df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"]).stochrsi_k()
-
-        latest = df.iloc[-1]
-        direction = "LONG" if latest["ema_20"] > latest["ema_50"] else "SHORT"
-        confidence = 0
-
-        if direction == "LONG":
-            confidence += 20 if latest["rsi"] > 60 else 0
-            confidence += 20 if latest["macd"] > latest["macd_signal"] else 0
-            confidence += 10 if latest["stoch_rsi"] < 0.25 else 0
-            confidence += 10 if is_bullish_engulfing(df) else 0
-        else:
-            confidence += 20 if latest["rsi"] < 40 else 0
-            confidence += 20 if latest["macd"] < latest["macd_signal"] else 0
-            confidence += 10 if latest["stoch_rsi"] > 0.75 else 0
-            confidence += 10 if is_bearish_engulfing(df) else 0
-
-        price = latest["close"]
-        atr = latest["atr"]
-        fib = calculate_fibonacci_levels(price, direction=direction)
-        tp1 = fib.get("tp1", price + atr * 1.5 if direction == "LONG" else price - atr * 1.5)
-        tp2 = fib.get("tp2", price + atr * 2.0 if direction == "LONG" else price - atr * 2.0)
-        tp3 = fib.get("tp3", price + atr * 3.0 if direction == "LONG" else price - atr * 3.0)
-        sr = detect_sr_levels(df)
-        sl = sr["support"] if direction == "LONG" else sr["resistance"]
+        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df = add_indicators(df)
+        signal, confidence, tp_possibility = evaluate_signal(df)
 
         return {
-            "symbol": symbol,
-            "price": price,
-            "direction": direction,
+            "signal": signal,
             "confidence": confidence,
-            "tp1": round(tp1, 4),
-            "tp2": round(tp2, 4),
-            "tp3": round(tp3, 4),
-            "sl": round(sl, 4) if sl else round(price - atr * 0.8 if direction == "LONG" else price + atr * 0.8, 4),
-            "atr": atr,
-            "timestamp": latest["timestamp"],
-            "trade_type": "Normal" if confidence >= 85 else "Scalping"
+            "tp_possibility": tp_possibility
         }
+
     except Exception as e:
-        log(f"Error calculating indicators for {symbol}: {e}")
+        logger.warning(f"Indicator calc failed for {symbol}: {e}")
         return None
