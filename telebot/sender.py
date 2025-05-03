@@ -3,7 +3,7 @@
 import httpx
 
 BOT_TOKEN = "7620836100:AAEEe4yAP18Lxxj0HoYfH8aeX4PetAxYsV0"
-CHAT_ID = "YOUR_CHAT_ID"
+CHAT_ID = "-4694205383"
 
 async def send_telegram_signal(message: str):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
