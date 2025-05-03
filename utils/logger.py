@@ -9,17 +9,18 @@ def setup_logger():
     logger = logging.getLogger("crypto-bot")
     logger.setLevel(logging.INFO)
 
-    # Console Handler
-    console_handler = logging.StreamHandler()
-    console_formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
-    console_handler.setFormatter(console_formatter)
+    if not logger.handlers:
+        # Console Handler
+        console_handler = logging.StreamHandler()
+        console_formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+        console_handler.setFormatter(console_formatter)
 
-    # File Handler with Rotation
-    file_handler = RotatingFileHandler(f"{log_dir}/bot.log", maxBytes=5_000_000, backupCount=5)
-    file_formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
-    file_handler.setFormatter(file_formatter)
+        # File Handler with Rotation
+        file_handler = RotatingFileHandler(f"{log_dir}/bot.log", maxBytes=5_000_000, backupCount=5)
+        file_formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+        file_handler.setFormatter(file_formatter)
 
-    logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+        logger.addHandler(file_handler)
 
     return logger
