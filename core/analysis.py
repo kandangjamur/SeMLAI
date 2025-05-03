@@ -1,9 +1,20 @@
 import asyncio
 from core.indicators import calculate_indicators
 
-TIMEFRAMES = ['1m', '5m', '15m', '1h']
+TIMEFRAMES = ['15m', '1h', '4h', '1d']
 
-async def analyze_symbol(exchange, symbol: str):
+async def fetch_ohlcv(exchange, symbol: str, timeframe: str):
+    try:
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)
+        await asyncio.sleep(0.4)  # Rate limiting
+        return ohlcv
+    except Exception:
+        return None
+
+async def analyze_symbol(symbol: str):
+    from utils.exchange import get_exchange  # Delayed import to avoid boot conflict
+    exchange = await get_exchange()
+
     try:
         tasks = [fetch_ohlcv(exchange, symbol, tf) for tf in TIMEFRAMES]
         data_sets = await asyncio.gather(*tasks)
@@ -23,22 +34,19 @@ async def analyze_symbol(exchange, symbol: str):
             return None
 
         confidence = sum(r["confidence"] for r in results) // len(results)
-        tp_levels = results[-1]["tp_levels"]
+        tp1_possibility = results[-1].get("tp1_possibility", 0)
+        tp_levels = results[-1].get("tp_levels", [])
 
         return {
             "symbol": symbol,
-            "signal": direction,
+            "direction": direction,
             "confidence": confidence,
+            "tp1_possibility": tp1_possibility,
             "tp_levels": tp_levels
         }
 
     except Exception:
         return None
-
-async def fetch_ohlcv(exchange, symbol: str, timeframe: str):
-    try:
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)
-        await asyncio.sleep(0.4)
-        return ohlcv
-    except Exception:
-        return None
+    finally:
+        if hasattr(exchange, "close"):
+            await exchange.close()
