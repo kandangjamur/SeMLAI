@@ -1,62 +1,101 @@
 import pandas as pd
 import numpy as np
-import talib
+import ta
 
-def safe_talib_call(func, *args, **kwargs):
-    try:
-        return func(*args, **kwargs)
-    except Exception:
-        return np.nan
+def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    # Price Change %
+    df['returns'] = df['close'].pct_change()
 
-async def calculate_indicators(symbol, ohlcv_15m, ohlcv_1h):
-    try:
-        df_15m = pd.DataFrame(ohlcv_15m, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        df_1h = pd.DataFrame(ohlcv_1h, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    # RSI
+    df['rsi'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
 
-        for df in [df_15m, df_1h]:
-            df["ema_20"] = safe_talib_call(talib.EMA, df["close"], timeperiod=20)
-            df["rsi"] = safe_talib_call(talib.RSI, df["close"], timeperiod=14)
-            df["macd"], df["macdsignal"], _ = safe_talib_call(talib.MACD, df["close"], 12, 26, 9)
+    # MACD
+    macd = ta.trend.MACD(close=df['close'])
+    df['macd'] = macd.macd()
+    df['macd_signal'] = macd.macd_signal()
 
-        latest_15m = df_15m.iloc[-1]
-        latest_1h = df_1h.iloc[-1]
+    # EMA 20 / 50 / 100 / 200
+    df['ema20'] = ta.trend.EMAIndicator(close=df['close'], window=20).ema_indicator()
+    df['ema50'] = ta.trend.EMAIndicator(close=df['close'], window=50).ema_indicator()
+    df['ema100'] = ta.trend.EMAIndicator(close=df['close'], window=100).ema_indicator()
+    df['ema200'] = ta.trend.EMAIndicator(close=df['close'], window=200).ema_indicator()
 
-        conditions = {
-            "long": (
-                latest_15m["close"] > latest_15m["ema_20"] > 0 and
-                latest_15m["macd"] > latest_15m["macdsignal"] and
-                latest_15m["rsi"] > 55 and
-                latest_1h["macd"] > latest_1h["macdsignal"] and
-                latest_1h["rsi"] > 50
-            ),
-            "short": (
-                latest_15m["close"] < latest_15m["ema_20"] > 0 and
-                latest_15m["macd"] < latest_15m["macdsignal"] and
-                latest_15m["rsi"] < 45 and
-                latest_1h["macd"] < latest_1h["macdsignal"] and
-                latest_1h["rsi"] < 50
-            )
-        }
+    # Bollinger Bands
+    bb = ta.volatility.BollingerBands(close=df['close'], window=20, window_dev=2)
+    df['bb_upper'] = bb.bollinger_hband()
+    df['bb_lower'] = bb.bollinger_lband()
 
-        direction = None
-        if conditions["long"]:
-            direction = "LONG"
-        elif conditions["short"]:
-            direction = "SHORT"
+    # Stochastic RSI
+    stoch = ta.momentum.StochRSIIndicator(close=df['close'], window=14)
+    df['stoch_k'] = stoch.stochrsi_k()
+    df['stoch_d'] = stoch.stochrsi_d()
 
-        confidence = 0
-        if direction:
-            confidence += 20 if latest_15m["volume"] > df_15m["volume"].mean() else -10
-            confidence += 30 if abs(latest_15m["macd"] - latest_15m["macdsignal"]) > 0.5 else 10
-            confidence += 20 if direction == "LONG" and latest_1h["rsi"] > 60 else 0
-            confidence += 20 if direction == "SHORT" and latest_1h["rsi"] < 40 else 0
+    # MFI
+    df['mfi'] = ta.volume.MFIIndicator(high=df['high'], low=df['low'], close=df['close'], volume=df['volume']).money_flow_index()
 
-        tp_possibility = "HIGH" if confidence >= 70 else "MEDIUM" if confidence >= 50 else "LOW"
+    # CCI
+    df['cci'] = ta.trend.CCIIndicator(high=df['high'], low=df['low'], close=df['close'], window=20).cci()
 
-        df_15m["direction"] = direction
-        df_15m["confidence"] = confidence
-        df_15m["tp_possibility"] = tp_possibility
+    # ADX
+    df['adx'] = ta.trend.ADXIndicator(high=df['high'], low=df['low'], close=df['close'], window=14).adx()
 
-        return df_15m
-    except Exception:
-        return None
+    # ATR
+    df['atr'] = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close']).average_true_range()
+
+    # OBV
+    df['obv'] = ta.volume.OnBalanceVolumeIndicator(close=df['close'], volume=df['volume']).on_balance_volume()
+
+    # VWAP (manual)
+    df['vwap'] = (df['volume'] * (df['high'] + df['low'] + df['close']) / 3).cumsum() / df['volume'].cumsum()
+
+    # Trend & Confidence Logic
+    df['direction'] = 'none'
+    df['confidence'] = 0.0
+    df['tp1_chance'] = 0.0
+
+    for i in range(len(df)):
+        score = 0
+        tp_score = 0
+
+        # Price above EMA
+        if df['close'].iloc[i] > df['ema20'].iloc[i]: score += 1
+        if df['close'].iloc[i] > df['ema50'].iloc[i]: score += 1
+        if df['close'].iloc[i] > df['ema100'].iloc[i]: score += 1
+        if df['close'].iloc[i] > df['ema200'].iloc[i]: score += 1
+
+        # RSI bullish
+        if df['rsi'].iloc[i] > 50: score += 1
+        if df['rsi'].iloc[i] < 30: score -= 1
+
+        # MACD
+        if df['macd'].iloc[i] > df['macd_signal'].iloc[i]: score += 1
+        else: score -= 1
+
+        # MFI
+        if df['mfi'].iloc[i] > 50: score += 1
+        if df['mfi'].iloc[i] < 20: score -= 1
+
+        # Stochastic
+        if df['stoch_k'].iloc[i] > df['stoch_d'].iloc[i]: score += 1
+
+        # CCI
+        if df['cci'].iloc[i] > 100: score += 1
+        if df['cci'].iloc[i] < -100: score -= 1
+
+        # ADX strong trend
+        if df['adx'].iloc[i] > 20: score += 1
+
+        # Bollinger logic
+        if df['close'].iloc[i] < df['bb_lower'].iloc[i]: tp_score += 1
+        if df['close'].iloc[i] > df['bb_upper'].iloc[i]: tp_score += 1
+
+        # Final assignment
+        direction = 'LONG' if score >= 5 else 'SHORT' if score <= -5 else 'none'
+        confidence = round(abs(score) / 10 * 100, 2)
+        tp1_possibility = round(tp_score / 2, 2)
+
+        df.at[df.index[i], 'direction'] = direction
+        df.at[df.index[i], 'confidence'] = confidence
+        df.at[df.index[i], 'tp1_chance'] = tp1_possibility
+
+    return df
