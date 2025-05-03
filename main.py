@@ -32,14 +32,17 @@ API_DELAY = 0.4
 
 @app.on_event("startup")
 async def startup_event():
+    print("🚀 App starting up...")
     await load_symbols()
+    print(f"✅ Loaded {len(symbols)} symbols. Starting scan and keep-alive tasks...")
     asyncio.create_task(scan_symbols_loop())
     asyncio.create_task(keep_instance_alive())
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    logger.info("Signal scanning loop cancelled gracefully.")
+    print("🛑 Shutdown triggered.")
     await exchange.close()
+    logger.info("Signal scanning loop cancelled gracefully.")
 
 @app.get("/")
 async def root():
@@ -61,18 +64,22 @@ async def load_symbols():
         all_symbols = [s for s in all_symbols if not any(x in s for x in ["UP", "DOWN", "BULL", "BEAR", "1000"])]
         global symbols
         symbols = all_symbols[:MAX_SYMBOLS]
-        logger.info(f"Loaded {len(symbols)} valid USDT symbols.")
+        print(f"📈 Loaded {len(symbols)} valid USDT symbols.")
     except Exception as e:
-        logger.error(f"Failed to load symbols: {e}")
+        print(f"❌ Failed to load symbols: {e}")
         symbols.clear()
 
 async def scan_symbols_loop():
+    print("🔄 Starting symbol scanning loop...")
     while True:
         try:
+            print("📊 Scanning symbols...")
             tasks = [analyze_and_store(symbol) for symbol in symbols]
             await asyncio.gather(*tasks)
+            print(f"⏳ Sleeping 30s before next scan...")
         except Exception as e:
-            logger.error(f"Error in scanning loop: {e}")
+            logger.error(f"🔥 Error in scanning loop: {e}")
+            print(f"🔥 Scan loop error: {e}")
         await asyncio.sleep(30)
 
 async def analyze_and_store(symbol: str):
@@ -88,8 +95,10 @@ async def analyze_and_store(symbol: str):
                     logger.info(f"Skipping {direction} for {symbol}, opposite still active.")
                     return
                 active_signals[key] = result
-                logger.info(f"New Signal: {result}")
+                logger.info(f"✅ New Signal: {result}")
+                print(f"📬 Signal Sent: {result}")
     except Exception as e:
+        print(f"⚠️ Error analyzing {symbol}: {e}")
         logger.warning(f"Error analyzing {symbol}: {e}")
 
 async def keep_instance_alive():
@@ -97,6 +106,7 @@ async def keep_instance_alive():
         try:
             async with httpx.AsyncClient() as client:
                 await client.get("http://localhost:8000/health")
+                print("💓 Keep-alive ping sent.")
         except Exception as e:
-            logger.warning(f"Keep-alive ping failed: {e}")
-        await asyncio.sleep(240)  # ping every 4 minutes
+            print(f"💔 Keep-alive failed: {e}")
+        await asyncio.sleep(240)  # 4 minutes
