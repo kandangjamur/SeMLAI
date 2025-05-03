@@ -2,7 +2,7 @@
 
 import httpx
 
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+BOT_TOKEN = "7620836100:AAEEe4yAP18Lxxj0HoYfH8aeX4PetAxYsV0"
 CHAT_ID = "YOUR_CHAT_ID"
 
 async def send_telegram_signal(message: str):
