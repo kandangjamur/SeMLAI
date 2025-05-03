@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.analysis import analyze_symbol
 from utils.logger import setup_logger
 import ccxt.async_support as ccxt
+import time
+import httpx
 
 app = FastAPI()
 logger = setup_logger()
@@ -27,23 +29,17 @@ active_signals = {}
 CONFIDENCE_THRESHOLD = 50
 MAX_SYMBOLS = 100
 API_DELAY = 0.4
-scan_task = None  # Retain background task
 
 @app.on_event("startup")
 async def startup_event():
-    global scan_task
     await load_symbols()
-    scan_task = asyncio.create_task(scan_symbols_loop())
+    asyncio.create_task(scan_symbols_loop())
+    asyncio.create_task(keep_instance_alive())
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    logger.info("Signal scanning loop cancelled gracefully.")
     await exchange.close()
-    if scan_task:
-        scan_task.cancel()
-        try:
-            await scan_task
-        except asyncio.CancelledError:
-            logger.info("Background scanning task cancelled.")
 
 @app.get("/")
 async def root():
@@ -71,16 +67,13 @@ async def load_symbols():
         symbols.clear()
 
 async def scan_symbols_loop():
-    try:
-        while True:
-            try:
-                tasks = [analyze_and_store(symbol) for symbol in symbols]
-                await asyncio.gather(*tasks)
-            except Exception as e:
-                logger.error(f"Error in scanning loop: {e}")
-            await asyncio.sleep(30)
-    except asyncio.CancelledError:
-        logger.info("Signal scanning loop cancelled gracefully.")
+    while True:
+        try:
+            tasks = [analyze_and_store(symbol) for symbol in symbols]
+            await asyncio.gather(*tasks)
+        except Exception as e:
+            logger.error(f"Error in scanning loop: {e}")
+        await asyncio.sleep(30)
 
 async def analyze_and_store(symbol: str):
     try:
@@ -98,3 +91,12 @@ async def analyze_and_store(symbol: str):
                 logger.info(f"New Signal: {result}")
     except Exception as e:
         logger.warning(f"Error analyzing {symbol}: {e}")
+
+async def keep_instance_alive():
+    while True:
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.get("http://localhost:8000/health")
+        except Exception as e:
+            logger.warning(f"Keep-alive ping failed: {e}")
+        await asyncio.sleep(240)  # ping every 4 minutes
