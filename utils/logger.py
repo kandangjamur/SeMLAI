@@ -1,10 +1,10 @@
 import logging
 
-def setup_logger(name):
-    logger = logging.getLogger(name)
+def setup_logger():
+    logger = logging.getLogger("crypto-bot")
     logger.setLevel(logging.INFO)
-    if not logger.handlers:
-        ch = logging.StreamHandler()
-        ch.setFormatter(logging.Formatter("[%(asctime)s] %(message)s"))
-        logger.addHandler(ch)
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
     return logger
