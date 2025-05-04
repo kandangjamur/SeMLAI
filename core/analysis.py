@@ -14,7 +14,7 @@ async def fetch_ohlcv(exchange, symbol, timeframe, limit=100):
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         return df
     except Exception as e:
-        log(f"[{symbol}] Failed to fetch OHLCV for {timeframe}: {e}")
+        log(f"[{symbol}] Failed to fetch OHLCV for {timeframe}: {e}", level='ERROR')
         return None
 
 async def analyze_symbol(exchange, symbol):
@@ -23,19 +23,19 @@ async def analyze_symbol(exchange, symbol):
         df = await fetch_ohlcv(exchange, symbol, tf)
         if df is None:
             return None
-        df = calculate_indicators(df)
-        all_data[tf] = df
+        signal = calculate_indicators(symbol, df)
+        if signal is None:
+            return None
+        all_data[tf] = signal
 
-    # Aggregation logic
     decisions = []
     confidences = []
     tp1_probs = []
 
-    for tf, df in all_data.items():
-        row = df.iloc[-1]
-        direction = row.get('direction', 'none')
-        confidence = row.get('confidence', 0)
-        tp1_prob = row.get('tp1_chance', 0)
+    for tf, signal in all_data.items():
+        direction = signal.get('direction', 'none')
+        confidence = signal.get('confidence', 0)
+        tp1_prob = signal.get('tp1_possibility', 0)
 
         if direction != 'none':
             decisions.append(direction)
@@ -47,17 +47,19 @@ async def analyze_symbol(exchange, symbol):
             'symbol': symbol,
             'signal': None,
             'confidence': 0,
-            'tp1_chance': 0
+            'tp1_chance': 0,
+            'atr': 0.01
         }
 
-    # Final signal selection
     final_dir = max(set(decisions), key=decisions.count)
     avg_confidence = round(sum(confidences) / len(confidences), 2)
     avg_tp1 = round(sum(tp1_probs) / len(tp1_probs), 2)
+    atr = all_data['15m'].get('atr', 0.01)
 
     return {
         'symbol': symbol,
         'signal': final_dir,
         'confidence': avg_confidence,
-        'tp1_chance': avg_tp1
+        'tp1_chance': avg_tp1,
+        'atr': atr
     }
