@@ -17,6 +17,7 @@ from core.engine import predict_trend
 from utils.logger import log, log_signal_to_csv
 from telebot.sender import send_telegram_signal
 from data.tracker import update_signal_status
+from report_generator import generate_daily_summary
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
@@ -276,6 +277,19 @@ async def scan_symbols():
 
         log(f"Processed {len(processed_symbols)} symbols")
         await update_signal_status()
+
+        # Schedule daily report at 23:59
+        now = datetime.utcnow()
+        next_report = datetime(now.year, now.month, now.day, 23, 59)
+        if now > next_report:
+            next_report += timedelta(days=1)
+        wait_seconds = (next_report - now).total_seconds()
+        if wait_seconds <= 240:
+            await generate_daily_summary()
+            log("Daily report generated and sent")
+            await asyncio.sleep(240)
+            continue
+
         await exchange.close()
         exchange = await initialize_binance()
         await asyncio.sleep(240)
