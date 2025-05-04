@@ -4,10 +4,11 @@ from fastapi import FastAPI
 from core.analysis import fetch_ohlcv, analyze_symbol
 from core.indicators import calculate_indicators
 from telebot.sender import send_telegram_signal
-from utils.logger import log
+from utils.logger import log, log_signal_to_csv
 import ccxt.async_support as ccxt
 import os
 from dotenv import load_dotenv
+from time import time
 
 # FastAPI ایپ
 app = FastAPI()
@@ -29,6 +30,7 @@ async def health():
 
 # بائننس سے تمام USDT پیئرز لینے کا فنکشن
 async def get_valid_symbols(exchange):
+    log("Fetching USDT symbols...")
     try:
         markets = await exchange.load_markets()
         # صرف USDT پیئرز فلٹر کرو
@@ -43,6 +45,7 @@ async def get_valid_symbols(exchange):
 
 # سگنلز سکین کرنے کا فنکشن
 async def scan_symbols():
+    log("Starting symbol scan...")
     # بائننس ایکسچینج سیٹ اپ کرو
     exchange = ccxt.binance({
         'apiKey': os.getenv("BINANCE_API_KEY"),
@@ -59,9 +62,10 @@ async def scan_symbols():
 
     try:
         # API کنکشن ٹیسٹ کرو
+        log("Testing Binance API connection...")
         try:
-            await exchange.fetch_ticker('BTC/USDT')
-            log("Binance API connection successful.")
+            ticker = await exchange.fetch_ticker('BTC/USDT')
+            log(f"Binance API connection successful. BTC/USDT ticker: {ticker['last']}")
         except Exception as e:
             log(f"Binance API connection failed: {e}", level='ERROR')
             return
@@ -72,9 +76,11 @@ async def scan_symbols():
             log("No valid USDT symbols found!", level='ERROR')
             return
 
+        log(f"Scanning {len(symbols)} symbols...")
         for symbol in symbols:
             try:
                 # ڈیٹا اور تجزیہ کرو
+                log(f"Analyzing {symbol}...")
                 result = await analyze_symbol(exchange, symbol)
                 if not result or not result.get('signal'):
                     log(f"⚠️ {symbol} - No valid signal")
@@ -101,6 +107,7 @@ async def scan_symbols():
 
                 # سگنل ڈیٹا تیار کرو
                 signal_data = {
+                    "symbol": symbol,
                     "direction": direction,
                     "confidence": confidence,
                     "price": price,
@@ -109,12 +116,18 @@ async def scan_symbols():
                     "tp3": tp3,
                     "sl": sl,
                     "tp1_possibility": tp1_possibility,
-                    "leverage": leverage
+                    "leverage": leverage,
+                    "trade_type": trade_type,
+                    "timestamp": int(time() * 1000),  # CSV کے لیے ٹائم اسٹیمپ
+                    "tp2_possibility": result.get("tp2_possibility", 0),
+                    "tp3_possibility": result.get("tp3_possibility", 0)
                 }
 
-                # اگر کنفیڈنس اور TP1 امکان حد سے زیادہ ہو، تو میسیج بھیجو
+                # اگر کنفیڈنس اور TP1 امکان حد سے زیادہ ہو، تو میسیج بھیجو اور CSV میں لاگ کرو
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
+                    log(f"Sending Telegram signal for {symbol}...")
                     await send_telegram_signal(symbol, signal_data)
+                    log_signal_to_csv(signal_data)
                     log("✅ Signal SENT ✅")
                 elif confidence < CONFIDENCE_THRESHOLD:
                     log("⚠️ Skipped - Low confidence")
@@ -133,11 +146,13 @@ async def scan_symbols():
 
 # بوٹ کو مسلسل چلانے کا فنکشن
 async def run_bot():
+    log("Starting bot...")
     while True:
         try:
             await scan_symbols()
         except Exception as e:
             log(f"Error in run_bot: {e}", level='ERROR')
+        log("Waiting 60 seconds before next scan...")
         await asyncio.sleep(60)  # ہر منٹ سکین کرو
 
 # مین ایپلیکیشن
