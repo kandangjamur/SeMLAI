@@ -23,7 +23,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 templates = Jinja2Templates(directory="dashboard/templates")
 
-CONFIDENCE_THRESHOLD = 80
+CONFIDENCE_THRESHOLD = 70
 
 @app.get("/health")
 def health_check():
@@ -82,12 +82,13 @@ async def load_symbols(exchange):
             if (
                 s['quote'] == 'USDT' and 
                 s['active'] and 
-                s['symbol'] in exchange.symbols and
+                s['symbol'] in exchange.markets and
                 not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             ):
                 try:
-                    await exchange.fetch_ticker(s['symbol'])
-                    symbols.append(s['symbol'])
+                    if exchange.has['fetchTicker']:
+                        await exchange.fetch_ticker(s['symbol'])
+                        symbols.append(s['symbol'])
                 except Exception as e:
                     log(f"Skipping {s['symbol']}: {e}", level='INFO')
         log(f"Loaded {len(symbols)} valid USDT symbols")
@@ -167,7 +168,7 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
             return None
 
         await asyncio.sleep(1.2)
-        if symbol not in exchange.symbols:
+        if symbol not in exchange.markets:
             return None
 
         if symbol in ticker_cache:
@@ -179,10 +180,16 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         if not ticker or ticker.get("baseVolume", 0) < 50000:
             return None
 
+        timeframe = "15m"  # Default for Scalp
+        trade_type = "Scalp"
+        if ticker.get("baseVolume", 0) < 100000 or signal.get("confidence", 0) < 90:
+            timeframe = "1h"  # Normal trade
+            trade_type = "Normal"
+
         if symbol in ohlcv_cache:
             ohlcv = ohlcv_cache[symbol]
         else:
-            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe="15m", limit=50)
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=50)
             ohlcv_cache[symbol] = ohlcv
 
         result = await analyze_symbol(exchange, symbol)
@@ -212,7 +219,7 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
 
         confidence = min(signal.get("confidence", 0), 100)  # Cap confidence at 100
         tp1_possibility = signal.get("tp1_chance", 0)
-        print(f"🔍 {symbol} | Confidence: {confidence:.2f} | Direction: {signal['prediction']} | TP1 Chance: {tp1_possibility:.2f}")
+        print(f"🔍 {symbol} | Confidence: {confidence:.2f} | Direction: {signal['prediction']} | TP1 Chance: {tp1_possibility:.2f} | Trade Type: {trade_type}")
 
         if confidence < CONFIDENCE_THRESHOLD:
             print("⚠️ Skipped - Low confidence")
@@ -220,6 +227,7 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
 
         signal["leverage"] = 10
         signal["direction"] = signal["prediction"]
+        signal["trade_type"] = trade_type
         price = ticker["last"]
         atr = signal.get("atr", 0.01)
         signal["price"] = price
@@ -236,10 +244,11 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         sent_signals[symbol] = {
             "date": current_date,
             "timestamp": time.time(),
-            "direction": signal["prediction"]
+            "direction": signal["prediction"],
+            "trade_type": trade_type
         }
         save_sent_signals(sent_signals)
-        log(f"Signal sent for {symbol}: {signal['prediction']}, TP1={signal['tp1']} ({signal['tp1_possibility']}%), TP2={signal['tp2']} ({signal['tp2_possibility']}%), TP3={signal['tp3']} ({signal['tp3_possibility']}%)")
+        log(f"Signal sent for {symbol}: {signal['prediction']}, TP1={signal['tp1']} ({signal['tp1_possibility']}%), TP2={signal['tp2']} ({signal['tp2_possibility']}%), TP3={signal['tp3']} ({signal['tp3_possibility']}%), Trade Type={trade_type}")
         print("✅ Signal SENT ✅")
         return signal
     except Exception as e:
@@ -259,7 +268,7 @@ async def scan_symbols():
         return
 
     sent_signals = load_sent_signals()
-    BATCH_SIZE = 10
+    BATCH_SIZE = 5
 
     while True:
         current_date = datetime.utcnow().date().isoformat()
@@ -287,7 +296,8 @@ async def scan_symbols():
                     sent_signals[symbol] = {
                         "date": current_date,
                         "timestamp": time.time(),
-                        "direction": result["prediction"]
+                        "direction": result["prediction"],
+                        "trade_type": result["trade_type"]
                     }
                     save_sent_signals(sent_signals)
                 processed_symbols.add(symbol)
