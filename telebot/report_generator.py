@@ -2,6 +2,7 @@ import pandas as pd
 import httpx
 import asyncio
 from datetime import datetime
+import pytz
 import os
 from utils.logger import log
 
@@ -43,7 +44,7 @@ async def send_telegram_message(message: str):
 def log_report_status(success: bool, message: str):
     try:
         csv_path = "logs/report_status.csv"
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')
         data = {
             "success": success,
             "message": message,
@@ -67,7 +68,7 @@ def log_report_status(success: bool, message: str):
 async def generate_daily_summary():
     try:
         df = pd.read_csv("logs/signals_log.csv")
-        today = datetime.now().date()
+        today = datetime.now(pytz.timezone('Asia/Karachi')).date()
         df['timestamp'] = pd.to_datetime(df['timestamp'])
 
         today_signals = df[df['timestamp'].dt.date == today]
@@ -104,7 +105,7 @@ async def generate_daily_summary():
             f"🛑 *SL Hits*: {sl_hits}\n"
             f"✅ *Accuracy*: {accuracy}%\n"
             f"🏆 *Top Pairs*:\n{top_pairs_str}\n"
-            f"🕒 *Generated*: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            f"🕒 *Generated*: {datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')}"
         )
 
         # Save report to CSV
@@ -120,7 +121,7 @@ async def generate_daily_summary():
             "sl_hits": sl_hits,
             "accuracy": accuracy,
             "top_pairs": str(top_pairs),
-            "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            "timestamp": datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')
         }
         report_df = pd.DataFrame([report_data])
 
