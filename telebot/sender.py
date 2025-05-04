@@ -3,6 +3,7 @@ import asyncio
 import pandas as pd
 import os
 from datetime import datetime
+import pytz
 from utils.logger import log
 
 BOT_TOKEN = "7620836100:AAEEe4yAP18Lxxj0HoYfH8aeX4PetAxYsV0"
@@ -32,7 +33,7 @@ async def send_telegram_signal(symbol: str, signal: dict):
             f"🛑 *SL*: {sl:.4f}\n"
             f"⚖️ *Leverage*: {leverage}x\n"
             f"🔍 *Confidence*: {confidence:.2f}%\n"
-            f"🕒 *Timestamp*: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            f"🕒 *Timestamp*: {datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')}"
         )
 
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -68,7 +69,7 @@ async def send_telegram_signal(symbol: str, signal: dict):
 def log_telegram_status(symbol: str, success: bool, message: str):
     try:
         csv_path = "logs/telegram_status.csv"
-        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')
         data = {
             "symbol": symbol,
             "success": success,
