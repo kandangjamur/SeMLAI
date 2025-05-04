@@ -1,43 +1,49 @@
 import asyncio
 import uvicorn
 from fastapi import FastAPI
-from core.analysis import fetch_ohlcv, analyze_symbol
-from core.indicators import calculate_indicators
+from core.analysis import analyze_symbol
 from telebot.sender import send_telegram_signal
 from utils.logger import log, log_signal_to_csv
 import ccxt.async_support as ccxt
 import os
+import psutil
 from dotenv import load_dotenv
 from time import time
 
 # FastAPI ایپ
 app = FastAPI()
 
-# کنفیڈنس اور TP1 کی حد (تمہارے ڈسپلے کے مطابق)
-CONFIDENCE_THRESHOLD = 60  # 60% سے زیادہ کنفیڈنس
-TP1_POSSIBILITY_THRESHOLD = 0.8  # 80% سے زیادہ TP1 امکان
-SCALPING_CONFIDENCE_THRESHOLD = 85  # 85 سے کم کنفیڈنس اسکیلپنگ کے لیے
+# کنفیڈنس اور TP1 کی حد
+CONFIDENCE_THRESHOLD = 60
+TP1_POSSIBILITY_THRESHOLD = 0.8
+SCALPING_CONFIDENCE_THRESHOLD = 85
 
-# ہیلتھ چیک اینڈ پوائنٹ (روٹ)
+# ہیلتھ چیک اینڈ پوائنٹ
 @app.get("/")
 async def root():
     log("Root endpoint accessed")
     return {"message": "Crypto Signal Bot is running."}
 
-# ہیلتھ چیک اینڈ پوائنٹ (Koyeb کے لیے)
 @app.get("/health")
 async def health():
     log("Health check endpoint accessed")
     return {"status": "healthy", "message": "Bot is operational."}
 
-# بائننس سے تمام USDT پیئرز لینے کا فنکشن
+# میموری استعمال لاگ کرنے کا فنکشن
+def log_memory_usage():
+    process = psutil.Process()
+    mem_info = process.memory_info()
+    mem_mb = mem_info.rss / (1024 * 1024)  # MB میں
+    log(f"Memory usage: {mem_mb:.2f} MB")
+    return mem_mb
+
+# بائننس سے فعال USDT پیئرز لینے کا فنکشن
 async def get_valid_symbols(exchange):
     log("Fetching USDT symbols...")
     try:
         markets = await exchange.load_markets()
-        # صرف USDT پیئرز فلٹر کرو
-        usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT')]
-        log(f"Found {len(usdt_symbols)} USDT pairs")
+        usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT') and markets[s].get('active', False)]
+        log(f"Found {len(usdt_symbols)} active USDT pairs")
         return usdt_symbols
     except Exception as e:
         log(f"Error fetching symbols: {e}", level='ERROR')
@@ -48,14 +54,12 @@ async def get_valid_symbols(exchange):
 # سگنلز سکین کرنے کا فنکشن
 async def scan_symbols():
     log("Starting symbol scan...")
-    # بائننس ایکسچینج سیٹ اپ کرو
     exchange = ccxt.binance({
         'apiKey': os.getenv("BINANCE_API_KEY"),
         'secret': os.getenv("BINANCE_API_SECRET"),
-        'enableRateLimit': True,  # API ریٹ لمٹ سے بچاؤ
+        'enableRateLimit': True,
     })
 
-    # API کیز چیک کرو
     api_key = os.getenv("BINANCE_API_KEY")
     api_secret = os.getenv("BINANCE_API_SECRET")
     if not api_key or not api_secret:
@@ -63,7 +67,6 @@ async def scan_symbols():
         return
 
     try:
-        # API کنکشن ٹیسٹ کرو
         log("Testing Binance API connection...")
         try:
             ticker = await exchange.fetch_ticker('BTC/USDT')
@@ -72,7 +75,6 @@ async def scan_symbols():
             log(f"Binance API connection failed: {e}", level='ERROR')
             return
 
-        # ٹریڈنگ پیئرز لے لو
         symbols = await get_valid_symbols(exchange)
         if not symbols:
             log("No valid USDT symbols found!", level='ERROR')
@@ -81,7 +83,7 @@ async def scan_symbols():
         log(f"Scanning {len(symbols)} symbols...")
         for symbol in symbols:
             try:
-                # ڈیٹا اور تجزیہ کرو
+                log_memory_usage()  # ہر سمبل سے پہلے میموری چیک
                 log(f"Analyzing {symbol}...")
                 result = await analyze_symbol(exchange, symbol)
                 if not result or not result.get('signal'):
@@ -97,9 +99,8 @@ async def scan_symbols():
                 tp3 = result.get("tp3", 0)
                 sl = result.get("sl", 0)
                 leverage = result.get("leverage", 10)
-                trade_type = "Scalping" if confidence < SCALPING_CONFIDENCE_THRESHOLD else "Normal"
+                trade_type = result.get("trade_type", "Scalping")
 
-                # تمہارے اپ ڈیٹڈ ڈسپلے کے مطابق لاگنگ
                 log(
                     f"🔍 {symbol} | Confidence: {confidence:.2f} | "
                     f"Direction: {direction} | TP1 Chance: {tp1_possibility:.2f} | "
@@ -107,7 +108,6 @@ async def scan_symbols():
                     f"TP3: {tp3:.4f} | SL: {sl:.4f} | Leverage: {leverage}x"
                 )
 
-                # سگنل ڈیٹا تیار کرو
                 signal_data = {
                     "symbol": symbol,
                     "direction": direction,
@@ -120,12 +120,11 @@ async def scan_symbols():
                     "tp1_possibility": tp1_possibility,
                     "leverage": leverage,
                     "trade_type": trade_type,
-                    "timestamp": int(time() * 1000),  # CSV کے لیے ٹائم اسٹیمپ
+                    "timestamp": int(time() * 1000),
                     "tp2_possibility": result.get("tp2_possibility", 0),
                     "tp3_possibility": result.get("tp3_possibility", 0)
                 }
 
-                # اگر کنفیڈنس اور TP1 امکان حد سے زیادہ ہو، تو میسیج بھیجو اور CSV میں لاگ کرو
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
                     log(f"Sending Telegram signal for {symbol}...")
                     await send_telegram_signal(symbol, signal_data)
@@ -151,17 +150,22 @@ async def run_bot():
     log("Starting bot...")
     while True:
         try:
+            mem_usage = log_memory_usage()
+            if mem_usage > 300:
+                log("Memory usage exceeds 300 MB, optimizing...", level='ERROR')
+                # غیر ضروری ڈیٹا صاف کرو
+                import gc
+                gc.collect()
             log("Initiating scan_symbols...")
             await scan_symbols()
         except Exception as e:
             log(f"Error in run_bot: {e}", level='ERROR')
         log("Waiting 60 seconds before next scan...")
-        await asyncio.sleep(60)  # ہر منٹ سکین کرو
+        await asyncio.sleep(60)
 
 # مین ایپلیکیشن
 if __name__ == "__main__":
     log("Main application starting...")
-    # API کیز کی دستیابی چیک کرو
     if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_API_SECRET"):
         log("BINANCE_API_KEY or BINANCE_API_SECRET not set in environment!", level='ERROR')
         exit(1)
