@@ -24,7 +24,7 @@ app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 templates = Jinja2Templates(directory="dashboard/templates")
 
 CONFIDENCE_THRESHOLD = 65
-MIN_VOLUME = 5000  # Keep volume filter for accurate symbols
+MIN_VOLUME = 5000  # Keep volume filter for accurate signals
 BLACKLISTED_PAIRS = [
     '1000PEPE/USDT', '1000FLOKI/USDT', '1000SATS/USDT',
     '1000BONK/USDT', '1000RATS/USDT', 'TRUMP/USDT',
@@ -68,15 +68,29 @@ async def read_root(request: Request):
 async def initialize_binance():
     # Initialize Binance exchange with API credentials
     try:
-        if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_API_SECRET"):
+        api_key = os.getenv("BINANCE_API_KEY")
+        api_secret = os.getenv("BINANCE_API_SECRET")
+        if not api_key or not api_secret:
             log("Binance API key or secret missing", level='ERROR')
             return None
         exchange = ccxt.binance({
             'enableRateLimit': True,
             'options': {'defaultType': 'future'},
-            'apiKey': os.getenv("BINANCE_API_KEY"),
-            'secret': os.getenv("BINANCE_API_SECRET")
+            'apiKey': api_key,
+            'secret': api_secret
         })
+        # Test API connectivity with retries
+        for attempt in range(3):
+            try:
+                await exchange.fetch_balance()
+                log("Binance API credentials validated")
+                break
+            except Exception as e:
+                log(f"Attempt {attempt + 1} failed to validate API credentials: {e}", level='ERROR')
+                if attempt == 2:
+                    log("Failed to validate Binance API credentials after retries", level='ERROR')
+                    return None
+                await asyncio.sleep(2)
         await exchange.load_markets()
         log("Binance exchange initialized")
         return exchange
@@ -87,13 +101,28 @@ async def initialize_binance():
 async def load_symbols(exchange):
     # Load valid USDT perpetual futures symbols
     try:
-        markets = await exchange.fetch_markets()
+        # Fetch markets with retries
+        markets = None
+        for attempt in range(3):
+            try:
+                markets = await exchange.fetch_markets()
+                if markets:
+                    break
+                log(f"Attempt {attempt + 1}: No markets received from Binance API", level='WARNING')
+            except Exception as e:
+                log(f"Attempt {attempt + 1} failed to fetch markets: {e}", level='ERROR')
+            if attempt < 2:
+                await asyncio.sleep(2)
         if not markets:
-            log("No markets received from Binance API", level='ERROR')
+            log("Failed to fetch markets after retries", level='ERROR')
             return []
+
         symbols = []
         for market in markets:
             symbol = market.get('symbol', '')
+            if not symbol:
+                log("Market missing symbol", level='DEBUG')
+                continue
             quote = market.get('quote', '')
             active = market.get('active', False)
             market_type = market.get('type', '')
