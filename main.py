@@ -18,9 +18,9 @@ logger = setup_logger("scanner")
 # FastAPI ایپ
 app = FastAPI()
 
-# کنفیڈنس اور TP1 کی حد (درستگی کے لیے)
-CONFIDENCE_THRESHOLD = 70  # 70% سے زیادہ کنفیڈنس
-TP1_POSSIBILITY_THRESHOLD = 0.7  # 70% سے زیادہ TP1 امکان
+# کنفیڈنس اور TP1 کی حد (تمہارے ڈسپلے کے مطابق ایڈجسٹ کی)
+CONFIDENCE_THRESHOLD = 60  # 60% سے زیادہ کنفیڈنس
+TP1_POSSIBILITY_THRESHOLD = 0.8  # 80% سے زیادہ TP1 امکان
 SCALPING_CONFIDENCE_THRESHOLD = 85  # 85 سے کم کنفیڈنس اسکیلپنگ کے لیے
 
 # ہیلتھ چیک اینڈ پوائنٹ
@@ -76,13 +76,12 @@ async def scan_symbols():
                 confidence = result.get("confidence", 0)
                 tp1_possibility = result.get("tp1_chance", 0)
                 direction = result.get("signal", "none")
-                atr = result.get("atr", 0.01)
                 trade_type = "Scalping" if confidence < SCALPING_CONFIDENCE_THRESHOLD else "Normal"
 
+                # تمہارے ڈسپلے کے مطابق لاگنگ
                 logger.info(
-                    f"🔍 {symbol} | Trade Type: {trade_type} | "
-                    f"Confidence: {confidence:.2f} | Direction: {direction} | "
-                    f"TP1 Chance: {tp1_possibility:.2f} | ATR: {atr:.4f}"
+                    f"🔍 {symbol} | Confidence: {confidence:.2f} | "
+                    f"Direction: {direction} | TP1 Chance: {tp1_possibility:.2f}"
                 )
 
                 # اگر کنفیڈنس اور TP1 امکان حد سے زیادہ ہو، تو میسیج بھیجو
@@ -92,15 +91,14 @@ async def scan_symbols():
                         f"Trade Type: {trade_type}\n"
                         f"Direction: {direction}\n"
                         f"Confidence: {confidence:.2f}\n"
-                        f"TP1 Possibility: {tp1_possibility:.2f}\n"
-                        f"ATR: {atr:.4f}"
+                        f"TP1 Possibility: {tp1_possibility:.2f}"
                     )
                     await send_telegram_message(message)
-                    logger.info(f"✅ Signal SENT for {symbol} (Type: {trade_type}) ✅")
+                    logger.info("✅ Signal SENT ✅")
                 elif confidence < CONFIDENCE_THRESHOLD:
-                    logger.info(f"⚠️ {symbol} - Skipped (Low confidence: {confidence:.2f})")
+                    logger.info("⚠️ Skipped - Low confidence")
                 elif tp1_possibility < TP1_POSSIBILITY_THRESHOLD:
-                    logger.info(f"⚠️ {symbol} - Skipped (Low TP1 possibility: {tp1_possibility:.2f})")
+                    logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
 
