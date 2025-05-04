@@ -23,7 +23,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 templates = Jinja2Templates(directory="dashboard/templates")
 
-CONFIDENCE_THRESHOLD = 85
+CONFIDENCE_THRESHOLD = 80
 
 @app.get("/health")
 def health_check():
@@ -77,7 +77,13 @@ async def initialize_binance():
 async def load_symbols(exchange):
     try:
         markets = exchange.markets
-        invalid_symbols = ['TUSD/USDT', 'USDC/USDT', 'BUSD/USDT', 'LUNA/USDT', 'WING/USDT']
+        invalid_symbols = [
+            'TUSD/USDT', 'USDC/USDT', 'BUSD/USDT', 'LUNA/USDT', 'WING/USDT',
+            'TFUEL/USDT', 'WIN/USDT', 'WAN/USDT', 'EUR/USDT', 'LTO/USDT',
+            'MBL/USDT', 'DATA/USDT', 'ARDR/USDT', 'DCR/USDT', 'KMD/USDT',
+            'BCC/USDT', 'HC/USDT', 'MCO/USDT', 'NANO/USDT', 'BCN/USDT',
+            'BTS/USDT', 'XZC/USDT', 'LSK/USDT'
+        ]
         symbols = [
             s['symbol'] for s in markets.values()
             if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
@@ -183,15 +189,12 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
             if last_dir == "SHORT" and signal["prediction"] == "LONG":
                 return None
 
-        confidence = signal.get("confidence", 0)
+        confidence = min(signal.get("confidence", 0), 100)  # Cap confidence at 100
         tp1_possibility = signal.get("tp1_chance", 0)
         print(f"🔍 {symbol} | Confidence: {confidence:.2f} | Direction: {signal['prediction']} | TP1 Chance: {tp1_possibility:.2f}")
 
         if confidence < CONFIDENCE_THRESHOLD:
             print("⚠️ Skipped - Low confidence")
-            return None
-        if tp1_possibility < 0.5:
-            print("⚠️ Skipped - Low TP1 possibility")
             return None
 
         signal["leverage"] = 10
@@ -234,10 +237,15 @@ async def scan_symbols():
         await exchange.close()
         return
 
-    blacklisted = ["NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT", "JST/USDT"]
+    blacklisted = [
+        "NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT", "JST/USDT",
+        "TFUEL/USDT", "WIN/USDT", "WAN/USDT", "EUR/USDT", "LTO/USDT", "MBL/USDT",
+        "DATA/USDT", "ARDR/USDT", "DCR/USDT", "KMD/USDT", "BCC/USDT", "HC/USDT",
+        "MCO/USDT", "NANO/USDT", "BCN/USDT", "BTS/USDT", "XZC/USDT", "LSK/USDT"
+    ]
     symbols = [s for s in symbols if s not in blacklisted]
     sent_signals = load_sent_signals()
-    BATCH_SIZE = 20
+    BATCH_SIZE = 10
 
     while True:
         current_date = datetime.utcnow().date().isoformat()
