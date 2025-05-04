@@ -24,8 +24,7 @@ app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 templates = Jinja2Templates(directory="dashboard/templates")
 
 CONFIDENCE_THRESHOLD = 65
-MIN_VOLUME = 50000  # Relaxed volume filter to allow more symbols
-MIN_MARKET_CAP = 5000000  # Relaxed market cap filter to allow more symbols
+MIN_VOLUME = 5000  # Keep volume filter for accurate symbols
 BLACKLISTED_PAIRS = [
     '1000PEPE/USDT', '1000FLOKI/USDT', '1000SATS/USDT',
     '1000BONK/USDT', '1000RATS/USDT', 'TRUMP/USDT',
@@ -69,6 +68,9 @@ async def read_root(request: Request):
 async def initialize_binance():
     # Initialize Binance exchange with API credentials
     try:
+        if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_API_SECRET"):
+            log("Binance API key or secret missing", level='ERROR')
+            return None
         exchange = ccxt.binance({
             'enableRateLimit': True,
             'options': {'defaultType': 'future'},
@@ -86,25 +88,30 @@ async def load_symbols(exchange):
     # Load valid USDT perpetual futures symbols
     try:
         markets = await exchange.fetch_markets()
+        if not markets:
+            log("No markets received from Binance API", level='ERROR')
+            return []
         symbols = []
         for market in markets:
-            symbol = market['symbol']
-            # Use fallback values if market data is missing
+            symbol = market.get('symbol', '')
+            quote = market.get('quote', '')
+            active = market.get('active', False)
+            market_type = market.get('type', '')
+            contract_type = market.get('info', {}).get('contractType', '')
             quote_volume = float(market['info'].get('quoteVolume', 0))
-            market_cap = float(market['info'].get('marketCap', 0)) if 'marketCap' in market['info'] else 0
+            
             is_valid = (
-                market['quote'] == 'USDT' and
-                market['active'] and
-                market['type'] == 'future' and
-                market.get('info', {}).get('contractType') == 'PERPETUAL' and
+                quote == 'USDT' and
+                active and
+                market_type == 'future' and
+                contract_type == 'PERPETUAL' and
                 symbol not in BLACKLISTED_PAIRS and
-                quote_volume >= MIN_VOLUME and
-                (market_cap >= MIN_MARKET_CAP or market_cap == 0)  # Allow symbols with missing market cap
+                quote_volume >= MIN_VOLUME
             )
             if is_valid:
                 symbols.append(symbol)
             else:
-                log(f"Filtered out {symbol}: volume={quote_volume}, market_cap={market_cap}", level='DEBUG')
+                log(f"Filtered out {symbol}: quote={quote}, active={active}, type={market_type}, contractType={contract_type}, volume={quote_volume}", level='DEBUG')
         log(f"Loaded {len(symbols)} valid USDT symbols: {symbols}")
         return symbols
     except Exception as e:
@@ -215,7 +222,7 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
 
         timeframe = "15m"
         trade_type = "Scalp"
-        if ticker.get("baseVolume", 0) < 100000:
+        if ticker.get("baseVolume", 0) < 25000:
             timeframe = "1h"
             trade_type = "Normal"
 
