@@ -23,7 +23,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 templates = Jinja2Templates(directory="dashboard/templates")
 
-CONFIDENCE_THRESHOLD = 70
+CONFIDENCE_THRESHOLD = 65
 
 @app.get("/health")
 def health_check():
@@ -76,21 +76,17 @@ async def initialize_binance():
 
 async def load_symbols(exchange):
     try:
-        markets = exchange.markets
+        markets = await exchange.fetch_markets()
         symbols = []
-        for s in markets.values():
+        for market in markets:
             if (
-                s['quote'] == 'USDT' and 
-                s['active'] and 
-                s['symbol'] in exchange.markets and
-                not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
+                market['quote'] == 'USDT' and
+                market['active'] and
+                market['type'] == 'future' and
+                market.get('info', {}).get('contractType') == 'PERPETUAL' and
+                not any(x in market['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
             ):
-                try:
-                    if exchange.has['fetchTicker']:
-                        await exchange.fetch_ticker(s['symbol'])
-                        symbols.append(s['symbol'])
-                except Exception as e:
-                    log(f"Skipping {s['symbol']}: {e}", level='INFO')
+                symbols.append(market['symbol'])
         log(f"Loaded {len(symbols)} valid USDT symbols")
         return symbols
     except Exception as e:
@@ -135,7 +131,6 @@ async def get_last_direction(symbol, exchange):
         current_price = ticker["last"]
         time_elapsed = time.time() - timestamp
 
-        # Check if TP1, TP2, TP3, SL hit or trade expired
         if direction == "LONG":
             if (
                 current_price >= tp1 or 
@@ -144,7 +139,7 @@ async def get_last_direction(symbol, exchange):
                 current_price <= sl or 
                 time_elapsed >= 5 * 3600
             ):
-                return None  # Trade completed or expired
+                return None
         elif direction == "SHORT":
             if (
                 current_price <= tp1 or 
@@ -153,7 +148,7 @@ async def get_last_direction(symbol, exchange):
                 current_price >= sl or 
                 time_elapsed >= 5 * 3600
             ):
-                return None  # Trade completed or expired
+                return None
         return direction, tp1, tp2, entry_price
     except Exception as e:
         log(f"Error checking last direction for {symbol}: {e}", level='ERROR')
@@ -180,10 +175,10 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         if not ticker or ticker.get("baseVolume", 0) < 50000:
             return None
 
-        timeframe = "15m"  # Default for Scalp
+        timeframe = "15m"
         trade_type = "Scalp"
         if ticker.get("baseVolume", 0) < 100000 or signal.get("confidence", 0) < 90:
-            timeframe = "1h"  # Normal trade
+            timeframe = "1h"
             trade_type = "Normal"
 
         if symbol in ohlcv_cache:
@@ -204,20 +199,18 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         last_info = await get_last_direction(symbol, exchange)
         if last_info:
             last_dir, tp1, tp2, entry_price = last_info
-            # Block new signal unless it's a reverse trade
             if last_dir == signal["prediction"]:
-                return None  # Same direction, wait for TP1/TP2
-            # Allow reverse trade only if TP1 or TP2 hit
+                return None
             ticker = await exchange.fetch_ticker(symbol)
             current_price = ticker["last"]
             if last_dir == "LONG" and signal["prediction"] == "SHORT":
                 if current_price < tp1 and current_price < tp2:
-                    return None  # TP1/TP2 not hit, block reverse
+                    return None
             elif last_dir == "SHORT" and signal["prediction"] == "LONG":
                 if current_price > tp1 and current_price > tp2:
-                    return None  # TP1/TP2 not hit, block reverse
+                    return None
 
-        confidence = min(signal.get("confidence", 0), 100)  # Cap confidence at 100
+        confidence = min(signal.get("confidence", 0), 100)
         tp1_possibility = signal.get("tp1_chance", 0)
         print(f"🔍 {symbol} | Confidence: {confidence:.2f} | Direction: {signal['prediction']} | TP1 Chance: {tp1_possibility:.2f} | Trade Type: {trade_type}")
 
@@ -268,7 +261,7 @@ async def scan_symbols():
         return
 
     sent_signals = load_sent_signals()
-    BATCH_SIZE = 5
+    BATCH_SIZE = 3
 
     while True:
         current_date = datetime.utcnow().date().isoformat()
@@ -310,7 +303,6 @@ async def scan_symbols():
         log(f"Processed {len(processed_symbols)} symbols")
         await update_signal_status()
 
-        # Schedule daily report at 23:59
         now = datetime.utcnow()
         next_report = datetime(now.year, now.month, now.day, 23, 59)
         if now > next_report:
