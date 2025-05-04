@@ -17,7 +17,7 @@ from core.engine import predict_trend
 from utils.logger import log, log_signal_to_csv
 from telebot.sender import send_telegram_signal
 from data.tracker import update_signal_status
-from report_generator import generate_daily_summary
+from telebot.report_generator import generate_daily_summary
 
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
@@ -256,7 +256,7 @@ async def scan_symbols():
             log(f"Processing batch {i//BATCH_SIZE + 1} with {len(batch)} symbols")
             tasks = [
                 process_symbol(symbol, exchange, sent_signals, current_date, processed_symbols, ticker_cache, ohlcv_cache)
-                for symbol in batch
+            for symbol in batch
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
