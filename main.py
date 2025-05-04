@@ -24,13 +24,13 @@ app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 templates = Jinja2Templates(directory="dashboard/templates")
 
 CONFIDENCE_THRESHOLD = 65
-MIN_VOLUME = 1000000  # کم از کم والیوم فلٹر
-MIN_MARKET_CAP = 100000000  # کم از کم مارکیٹ کیپ فلٹر
+MIN_VOLUME = 50000  # Relaxed volume filter to allow more symbols
+MIN_MARKET_CAP = 5000000  # Relaxed market cap filter to allow more symbols
 BLACKLISTED_PAIRS = [
     '1000PEPE/USDT', '1000FLOKI/USDT', '1000SATS/USDT',
     '1000BONK/USDT', '1000RATS/USDT', 'TRUMP/USDT',
     'MELANIA/USDT', 'ANIME/USDT', 'PIPPIN/USDT'
-]  # مشکوک پیئرز کی بلیک لسٹ
+]
 
 @app.get("/health")
 def health_check():
@@ -67,6 +67,7 @@ async def read_root(request: Request):
     return templates.TemplateResponse("dashboard.html", {"request": request, "signals": signals})
 
 async def initialize_binance():
+    # Initialize Binance exchange with API credentials
     try:
         exchange = ccxt.binance({
             'enableRateLimit': True,
@@ -82,28 +83,36 @@ async def initialize_binance():
         return None
 
 async def load_symbols(exchange):
+    # Load valid USDT perpetual futures symbols
     try:
         markets = await exchange.fetch_markets()
         symbols = []
         for market in markets:
-            if (
+            symbol = market['symbol']
+            # Use fallback values if market data is missing
+            quote_volume = float(market['info'].get('quoteVolume', 0))
+            market_cap = float(market['info'].get('marketCap', 0)) if 'marketCap' in market['info'] else 0
+            is_valid = (
                 market['quote'] == 'USDT' and
                 market['active'] and
                 market['type'] == 'future' and
                 market.get('info', {}).get('contractType') == 'PERPETUAL' and
-                not any(x in market['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"]) and
-                market['symbol'] not in BLACKLISTED_PAIRS and
-                float(market['info'].get('quoteVolume', 0)) > MIN_VOLUME and
-                float(market['info'].get('marketCap', 0)) > MIN_MARKET_CAP
-            ):
-                symbols.append(market['symbol'])
-        log(f"Loaded {len(symbols)} valid USDT symbols")
+                symbol not in BLACKLISTED_PAIRS and
+                quote_volume >= MIN_VOLUME and
+                (market_cap >= MIN_MARKET_CAP or market_cap == 0)  # Allow symbols with missing market cap
+            )
+            if is_valid:
+                symbols.append(symbol)
+            else:
+                log(f"Filtered out {symbol}: volume={quote_volume}, market_cap={market_cap}", level='DEBUG')
+        log(f"Loaded {len(symbols)} valid USDT symbols: {symbols}")
         return symbols
     except Exception as e:
         log(f"Failed to load markets: {e}", level='ERROR')
         return []
 
 def load_sent_signals():
+    # Load previously sent signals from JSON file
     try:
         with open("logs/sent_signals.json", "r") as f:
             return json.load(f)
@@ -114,6 +123,7 @@ def load_sent_signals():
         return {}
 
 def save_sent_signals(sent_signals):
+    # Save sent signals to JSON file
     try:
         with open("logs/sent_signals.json", "w") as f:
             json.dump(sent_signals, f)
@@ -121,6 +131,7 @@ def save_sent_signals(sent_signals):
         log(f"Error saving sent_signals: {e}", level='ERROR')
 
 async def get_last_direction(symbol, exchange):
+    # Check the last signal direction for a symbol
     try:
         if not os.path.exists("logs/signals_log.csv"):
             return None
@@ -165,19 +176,21 @@ async def get_last_direction(symbol, exchange):
         return None
 
 async def fetch_clean_ohlcv(exchange, symbol, timeframe, limit):
+    # Fetch and clean OHLCV data for a symbol
     try:
         ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df = df.replace([np.inf, -np.inf], np.nan).dropna()
         df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].replace(0, np.nan).fillna(method='ffill')
         if df.empty:
-            log(f"{symbol} کے لیے ڈیٹا خالی ہے", level='WARNING')
+            log(f"No valid data for {symbol}", level='WARNING')
         return df
     except Exception as e:
-        log(f"{symbol} کے لیے OHLCV فچنگ ایریر: {e}", level='ERROR')
+        log(f"Error fetching OHLCV for {symbol}: {e}", level='ERROR')
         return pd.DataFrame()
 
 async def process_symbol(symbol, exchange, sent_signals, current_date, processed_symbols, ticker_cache, ohlcv_cache):
+    # Process a symbol to generate trading signals
     try:
         if symbol in processed_symbols or symbol in BLACKLISTED_PAIRS:
             return None
@@ -187,10 +200,9 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
 
         await asyncio.sleep(1.2)
         if symbol not in exchange.markets:
-            log(f"{symbol} مارکیٹ میں نہیں ہے", level='WARNING')
+            log(f"{symbol} not found in markets", level='WARNING')
             return None
 
-        # ٹکر ڈیٹا
         if symbol in ticker_cache:
             ticker = ticker_cache[symbol]
         else:
@@ -198,17 +210,15 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
             ticker_cache[symbol] = ticker
 
         if not ticker or ticker.get("baseVolume", 0) < MIN_VOLUME:
-            log(f"{symbol} کا والیوم کم ہے: {ticker.get('baseVolume', 0)}", level='WARNING')
+            log(f"Low volume for {symbol}: {ticker.get('baseVolume', 0)}", level='WARNING')
             return None
 
-        # ٹائم فریم اور ٹریڈ کی قسم
         timeframe = "15m"
         trade_type = "Scalp"
-        if ticker.get("baseVolume", 0) < 1000000:  # سخت فلٹر
+        if ticker.get("baseVolume", 0) < 100000:
             timeframe = "1h"
             trade_type = "Normal"
 
-        # OHLCV ڈیٹا
         if symbol in ohlcv_cache:
             ohlcv = ohlcv_cache[symbol]
         else:
@@ -218,10 +228,9 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         if ohlcv.empty:
             return None
 
-        # سگنل جنریشن
         result = await analyze_symbol(exchange, symbol)
         if not result or not result.get("signal"):
-            log(f"{symbol} کے لیے کوئی سگنل نہیں ملا", level='WARNING')
+            log(f"No signal generated for {symbol}", level='WARNING')
             return None
 
         signal = result
@@ -229,7 +238,6 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         if signal["prediction"] not in ["LONG", "SHORT"]:
             signal["prediction"] = signal["signal"]
 
-        # پچھلے سگنل کی جانچ
         last_info = await get_last_direction(symbol, exchange)
         if last_info:
             last_dir, tp1, tp2, entry_price = last_info
@@ -249,10 +257,9 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         log(f"🔍 {symbol} | Confidence: {confidence:.2f} | Direction: {signal['prediction']} | TP1 Chance: {tp1_possibility:.2f} | Trade Type: {trade_type}")
 
         if confidence < CONFIDENCE_THRESHOLD:
-            log(f"{symbol} - کم کنفیڈنس: {confidence}", level='WARNING')
+            log(f"Low confidence for {symbol}: {confidence}", level='WARNING')
             return None
 
-        # سگنل کی تفصیلات
         signal["leverage"] = 10
         signal["direction"] = signal["prediction"]
         signal["trade_type"] = trade_type
@@ -267,7 +274,6 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         signal["tp2_possibility"] = round(min(85, confidence - 5), 1)
         signal["tp3_possibility"] = round(min(75, confidence - 15), 1)
 
-        # ٹیلیگرام پر سگنل بھیجیں
         await send_telegram_signal(symbol, signal)
         log_signal_to_csv(signal)
         sent_signals[symbol] = {
@@ -284,6 +290,7 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         return None
 
 async def scan_symbols():
+    # Main loop to scan symbols and generate signals
     exchange = await initialize_binance()
     if not exchange:
         log("Failed to initialize exchange, exiting")
