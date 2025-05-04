@@ -24,6 +24,13 @@ app.mount("/static", StaticFiles(directory="dashboard/static"), name="static")
 templates = Jinja2Templates(directory="dashboard/templates")
 
 CONFIDENCE_THRESHOLD = 65
+MIN_VOLUME = 1000000  # کم از کم والیوم فلٹر
+MIN_MARKET_CAP = 100000000  # کم از کم مارکیٹ کیپ فلٹر
+BLACKLISTED_PAIRS = [
+    '1000PEPE/USDT', '1000FLOKI/USDT', '1000SATS/USDT',
+    '1000BONK/USDT', '1000RATS/USDT', 'TRUMP/USDT',
+    'MELANIA/USDT', 'ANIME/USDT', 'PIPPIN/USDT'
+]  # مشکوک پیئرز کی بلیک لسٹ
 
 @app.get("/health")
 def health_check():
@@ -84,7 +91,10 @@ async def load_symbols(exchange):
                 market['active'] and
                 market['type'] == 'future' and
                 market.get('info', {}).get('contractType') == 'PERPETUAL' and
-                not any(x in market['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
+                not any(x in market['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"]) and
+                market['symbol'] not in BLACKLISTED_PAIRS and
+                float(market['info'].get('quoteVolume', 0)) > MIN_VOLUME and
+                float(market['info'].get('marketCap', 0)) > MIN_MARKET_CAP
             ):
                 symbols.append(market['symbol'])
         log(f"Loaded {len(symbols)} valid USDT symbols")
@@ -154,9 +164,22 @@ async def get_last_direction(symbol, exchange):
         log(f"Error checking last direction for {symbol}: {e}", level='ERROR')
         return None
 
+async def fetch_clean_ohlcv(exchange, symbol, timeframe, limit):
+    try:
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df = df.replace([np.inf, -np.inf], np.nan).dropna()
+        df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].replace(0, np.nan).fillna(method='ffill')
+        if df.empty:
+            log(f"{symbol} کے لیے ڈیٹا خالی ہے", level='WARNING')
+        return df
+    except Exception as e:
+        log(f"{symbol} کے لیے OHLCV فچنگ ایریر: {e}", level='ERROR')
+        return pd.DataFrame()
+
 async def process_symbol(symbol, exchange, sent_signals, current_date, processed_symbols, ticker_cache, ohlcv_cache):
     try:
-        if symbol in processed_symbols:
+        if symbol in processed_symbols or symbol in BLACKLISTED_PAIRS:
             return None
 
         if symbol in sent_signals and sent_signals[symbol]["date"] == current_date:
@@ -164,31 +187,41 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
 
         await asyncio.sleep(1.2)
         if symbol not in exchange.markets:
+            log(f"{symbol} مارکیٹ میں نہیں ہے", level='WARNING')
             return None
 
+        # ٹکر ڈیٹا
         if symbol in ticker_cache:
             ticker = ticker_cache[symbol]
         else:
             ticker = await exchange.fetch_ticker(symbol)
             ticker_cache[symbol] = ticker
 
-        if not ticker or ticker.get("baseVolume", 0) < 50000:
+        if not ticker or ticker.get("baseVolume", 0) < MIN_VOLUME:
+            log(f"{symbol} کا والیوم کم ہے: {ticker.get('baseVolume', 0)}", level='WARNING')
             return None
 
+        # ٹائم فریم اور ٹریڈ کی قسم
         timeframe = "15m"
         trade_type = "Scalp"
-        if ticker.get("baseVolume", 0) < 100000 or signal.get("confidence", 0) < 90:
+        if ticker.get("baseVolume", 0) < 1000000:  # سخت فلٹر
             timeframe = "1h"
             trade_type = "Normal"
 
+        # OHLCV ڈیٹا
         if symbol in ohlcv_cache:
             ohlcv = ohlcv_cache[symbol]
         else:
-            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=50)
+            ohlcv = await fetch_clean_ohlcv(exchange, symbol, timeframe, limit=50)
             ohlcv_cache[symbol] = ohlcv
 
+        if ohlcv.empty:
+            return None
+
+        # سگنل جنریشن
         result = await analyze_symbol(exchange, symbol)
         if not result or not result.get("signal"):
+            log(f"{symbol} کے لیے کوئی سگنل نہیں ملا", level='WARNING')
             return None
 
         signal = result
@@ -196,6 +229,7 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         if signal["prediction"] not in ["LONG", "SHORT"]:
             signal["prediction"] = signal["signal"]
 
+        # پچھلے سگنل کی جانچ
         last_info = await get_last_direction(symbol, exchange)
         if last_info:
             last_dir, tp1, tp2, entry_price = last_info
@@ -212,12 +246,13 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
 
         confidence = min(signal.get("confidence", 0), 100)
         tp1_possibility = signal.get("tp1_chance", 0)
-        print(f"🔍 {symbol} | Confidence: {confidence:.2f} | Direction: {signal['prediction']} | TP1 Chance: {tp1_possibility:.2f} | Trade Type: {trade_type}")
+        log(f"🔍 {symbol} | Confidence: {confidence:.2f} | Direction: {signal['prediction']} | TP1 Chance: {tp1_possibility:.2f} | Trade Type: {trade_type}")
 
         if confidence < CONFIDENCE_THRESHOLD:
-            print("⚠️ Skipped - Low confidence")
+            log(f"{symbol} - کم کنفیڈنس: {confidence}", level='WARNING')
             return None
 
+        # سگنل کی تفصیلات
         signal["leverage"] = 10
         signal["direction"] = signal["prediction"]
         signal["trade_type"] = trade_type
@@ -232,6 +267,7 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         signal["tp2_possibility"] = round(min(85, confidence - 5), 1)
         signal["tp3_possibility"] = round(min(75, confidence - 15), 1)
 
+        # ٹیلیگرام پر سگنل بھیجیں
         await send_telegram_signal(symbol, signal)
         log_signal_to_csv(signal)
         sent_signals[symbol] = {
@@ -242,7 +278,6 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
         }
         save_sent_signals(sent_signals)
         log(f"Signal sent for {symbol}: {signal['prediction']}, TP1={signal['tp1']} ({signal['tp1_possibility']}%), TP2={signal['tp2']} ({signal['tp2_possibility']}%), TP3={signal['tp3']} ({signal['tp3_possibility']}%), Trade Type={trade_type}")
-        print("✅ Signal SENT ✅")
         return signal
     except Exception as e:
         log(f"Error with {symbol}: {e}", level='ERROR')
@@ -264,59 +299,63 @@ async def scan_symbols():
     BATCH_SIZE = 3
 
     while True:
-        current_date = datetime.utcnow().date().isoformat()
-        sent_signals = {k: v for k, v in sent_signals.items() if v["date"] == current_date}
-        save_sent_signals(sent_signals)
-
-        memory = psutil.Process().memory_info().rss / 1024 / 1024
-        log(f"Memory usage: {memory:.2f} MB")
-        log(f"Processing {len(symbols)} USDT symbols")
-
-        processed_symbols = set()
-        ticker_cache = {}
-        ohlcv_cache = {}
-        for i in range(0, len(symbols), BATCH_SIZE):
-            batch = symbols[i:i + BATCH_SIZE]
-            log(f"Processing batch {i//BATCH_SIZE + 1} with {len(batch)} symbols")
-            tasks = [
-                process_symbol(symbol, exchange, sent_signals, current_date, processed_symbols, ticker_cache, ohlcv_cache)
-            for symbol in batch
-            ]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for symbol, result in zip(batch, results):
-                if result and isinstance(result, dict):
-                    sent_signals[symbol] = {
-                        "date": current_date,
-                        "timestamp": time.time(),
-                        "direction": result["prediction"],
-                        "trade_type": result["trade_type"]
-                    }
-                    save_sent_signals(sent_signals)
-                processed_symbols.add(symbol)
+        try:
+            current_date = datetime.utcnow().date().isoformat()
+            sent_signals = {k: v for k, v in sent_signals.items() if v["date"] == current_date}
+            save_sent_signals(sent_signals)
 
             memory = psutil.Process().memory_info().rss / 1024 / 1024
-            log(f"Batch {i//BATCH_SIZE + 1} completed, memory usage: {memory:.2f} MB")
-            ticker_cache.clear()
-            ohlcv_cache.clear()
+            log(f"Memory usage: {memory:.2f} MB")
+            log(f"Processing {len(symbols)} USDT symbols")
 
-        log(f"Processed {len(processed_symbols)} symbols")
-        await update_signal_status()
+            processed_symbols = set()
+            ticker_cache = {}
+            ohlcv_cache = {}
+            for i in range(0, len(symbols), BATCH_SIZE):
+                batch = symbols[i:i + BATCH_SIZE]
+                log(f"Processing batch {i//BATCH_SIZE + 1} with {len(batch)} symbols")
+                tasks = [
+                    process_symbol(symbol, exchange, sent_signals, current_date, processed_symbols, ticker_cache, ohlcv_cache)
+                    for symbol in batch if symbol not in BLACKLISTED_PAIRS
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        now = datetime.utcnow()
-        next_report = datetime(now.year, now.month, now.day, 23, 59)
-        if now > next_report:
-            next_report += timedelta(days=1)
-        wait_seconds = (next_report - now).total_seconds()
-        if wait_seconds <= 240:
-            await generate_daily_summary()
-            log("Daily report generated and sent")
+                for symbol, result in zip(batch, results):
+                    if result and isinstance(result, dict):
+                        sent_signals[symbol] = {
+                            "date": current_date,
+                            "timestamp": time.time(),
+                            "direction": result["prediction"],
+                            "trade_type": result["trade_type"]
+                        }
+                        save_sent_signals(sent_signals)
+                    processed_symbols.add(symbol)
+
+                memory = psutil.Process().memory_info().rss / 1024 / 1024
+                log(f"Batch {i//BATCH_SIZE + 1} completed, memory usage: {memory:.2f} MB")
+                ticker_cache.clear()
+                ohlcv_cache.clear()
+
+            log(f"Processed {len(processed_symbols)} symbols")
+            await update_signal_status()
+
+            now = datetime.utcnow()
+            next_report = datetime(now.year, now.month, now.day, 23, 59)
+            if now > next_report:
+                next_report += timedelta(days=1)
+            wait_seconds = (next_report - now).total_seconds()
+            if wait_seconds <= 240:
+                await generate_daily_summary()
+                log("Daily report generated and sent")
+                await asyncio.sleep(240)
+                continue
+
+        except Exception as e:
+            log(f"Scan loop error: {e}", level='ERROR')
+        finally:
+            await exchange.close()
+            exchange = await initialize_binance()
             await asyncio.sleep(240)
-            continue
-
-        await exchange.close()
-        exchange = await initialize_binance()
-        await asyncio.sleep(240)
 
 @app.on_event("startup")
 async def start_background_loop():
