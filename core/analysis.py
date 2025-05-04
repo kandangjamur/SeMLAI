@@ -1,181 +1,101 @@
 import asyncio
-import uvicorn
-from fastapi import FastAPI
-from core.analysis import analyze_symbol
-from telebot.sender import send_telegram_signal
-from utils.logger import log, log_signal_to_csv
-import ccxt.async_support as ccxt
-import os
-import psutil
-from dotenv import load_dotenv
-from time import time
+import pandas as pd
+from core.indicators import calculate_indicators
+from utils.logger import log
 
-# FastAPI ایپ
-app = FastAPI()
+TIMEFRAMES = ['15m', '1h', '4h', '1d']
 
-# کنفیڈنس اور TP1 کی حد
-CONFIDENCE_THRESHOLD = 60
-TP1_POSSIBILITY_THRESHOLD = 0.8
-SCALPING_CONFIDENCE_THRESHOLD = 85
-
-# ہیلتھ چیک اینڈ پوائنٹ
-@app.get("/")
-async def root():
-    log("Root endpoint accessed")
-    return {"message": "Crypto Signal Bot is running."}
-
-@app.get("/health")
-async def health():
-    log("Health check endpoint accessed")
-    return {"status": "healthy", "message": "Bot is operational."}
-
-# میموری استعمال لاگ کرنے کا فنکشن
-def log_memory_usage():
-    process = psutil.Process()
-    mem_info = process.memory_info()
-    mem_mb = mem_info.rss / (1024 * 1024)  # MB میں
-    log(f"Memory usage: {mem_mb:.2f} MB")
-    return mem_mb
-
-# بائننس سے فعال USDT پیئرز لینے کا فنکشن
-async def get_valid_symbols(exchange):
-    log("Fetching USDT symbols...")
+async def fetch_ohlcv(exchange, symbol, timeframe, limit=100):
     try:
-        markets = await exchange.load_markets()
-        usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT') and markets[s].get('active', False)]
-        log(f"Found {len(usdt_symbols)} active USDT pairs")
-        return usdt_symbols
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+        if not ohlcv or len(ohlcv) < 50:
+            log(f"[{symbol}] Insufficient OHLCV data for {timeframe}", level='ERROR')
+            return None
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'], dtype='float32')
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        return df
     except Exception as e:
-        log(f"Error fetching symbols: {e}", level='ERROR')
-        return []
-    finally:
-        await exchange.close()
+        log(f"[{symbol}] Failed to fetch OHLCV for {timeframe}: {e}", level='ERROR')
+        return None
 
-# سگنلز سکین کرنے کا فنکشن
-async def scan_symbols():
-    log("Starting symbol scan...")
-    exchange = ccxt.binance({
-        'apiKey': os.getenv("BINANCE_API_KEY"),
-        'secret': os.getenv("BINANCE_API_SECRET"),
-        'enableRateLimit': True,
-    })
+async def analyze_symbol(exchange, symbol):
+    all_data = {}
+    for tf in TIMEFRAMES:
+        df = await fetch_ohlcv(exchange, symbol, tf)
+        if df is None:
+            log(f"[{symbol}] Skipping {tf} due to fetch failure", level='ERROR')
+            continue
+        signal = calculate_indicators(symbol, df)
+        if signal is None:
+            log(f"[{symbol}] No signal for {tf}", level='ERROR')
+            continue
+        all_data[tf] = signal
 
-    api_key = os.getenv("BINANCE_API_KEY")
-    api_secret = os.getenv("BINANCE_API_SECRET")
-    if not api_key or not api_secret:
-        log("API Key or Secret is missing! Check Koyeb Config Vars.", level='ERROR')
-        return
+    if not all_data:
+        log(f"[{symbol}] No valid signals for any timeframe", level='ERROR')
+        return {
+            'symbol': symbol,
+            'signal': None,
+            'confidence': 0,
+            'tp1_chance': 0,
+            'atr': 0.01
+        }
 
-    try:
-        log("Testing Binance API connection...")
-        try:
-            ticker = await exchange.fetch_ticker('BTC/USDT')
-            log(f"Binance API connection successful. BTC/USDT ticker: {ticker['last']}")
-        except Exception as e:
-            log(f"Binance API connection failed: {e}", level='ERROR')
-            return
+    decisions = []
+    confidences = []
+    tp1_probs = []
 
-        symbols = await get_valid_symbols(exchange)
-        if not symbols:
-            log("No valid USDT symbols found!", level='ERROR')
-            return
+    for tf, signal in all_data.items():
+        direction = signal.get('direction', 'none')
+        confidence = signal.get('confidence', 0)
+        tp1_prob = signal.get('tp1_possibility', 0)
+        if direction != 'none':
+            decisions.append(direction)
+            confidences.append(confidence)
+            tp1_probs.append(tp1_prob)
 
-        log(f"Scanning {len(symbols)} symbols...")
-        for symbol in symbols:
-            try:
-                log_memory_usage()  # ہر سمبل سے پہلے میموری چیک
-                log(f"Analyzing {symbol}...")
-                result = await analyze_symbol(exchange, symbol)
-                if not result or not result.get('signal'):
-                    log(f"⚠️ {symbol} - No valid signal")
-                    continue
+    if not decisions:
+        log(f"[{symbol}] No valid decisions", level='ERROR')
+        return {
+            'symbol': symbol,
+            'signal': None,
+            'confidence': 0,
+            'tp1_chance': 0,
+            'atr': 0.01
+        }
 
-                confidence = result.get("confidence", 0)
-                tp1_possibility = result.get("tp1_chance", 0)
-                direction = result.get("signal", "none")
-                price = result.get("price", 0)
-                tp1 = result.get("tp1", 0)
-                tp2 = result.get("tp2", 0)
-                tp3 = result.get("tp3", 0)
-                sl = result.get("sl", 0)
-                leverage = result.get("leverage", 10)
-                trade_type = result.get("trade_type", "Scalping")
-
-                log(
-                    f"🔍 {symbol} | Confidence: {confidence:.2f} | "
-                    f"Direction: {direction} | TP1 Chance: {tp1_possibility:.2f} | "
-                    f"Entry: {price:.4f} | TP1: {tp1:.4f} | TP2: {tp2:.4f} | "
-                    f"TP3: {tp3:.4f} | SL: {sl:.4f} | Leverage: {leverage}x"
-                )
-
-                signal_data = {
-                    "symbol": symbol,
-                    "direction": direction,
-                    "confidence": confidence,
-                    "price": price,
-                    "tp1": tp1,
-                    "tp2": tp2,
-                    "tp3": tp3,
-                    "sl": sl,
-                    "tp1_possibility": tp1_possibility,
-                    "leverage": leverage,
-                    "trade_type": trade_type,
-                    "timestamp": int(time() * 1000),
-                    "tp2_possibility": result.get("tp2_possibility", 0),
-                    "tp3_possibility": result.get("tp3_possibility", 0)
-                }
-
-                if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
-                    log(f"Sending Telegram signal for {symbol}...")
-                    await send_telegram_signal(symbol, signal_data)
-                    log_signal_to_csv(signal_data)
-                    log("✅ Signal SENT ✅")
-                elif confidence < CONFIDENCE_THRESHOLD:
-                    log("⚠️ Skipped - Low confidence")
-                elif tp1_possibility < TP1_POSSIBILITY_THRESHOLD:
-                    log("⚠️ Skipped - Low TP1 possibility")
-
-                log("---")
-
-            except Exception as e:
-                log(f"Error processing {symbol}: {e}", level='ERROR')
-
-    except Exception as e:
-        log(f"Error in scan_symbols: {e}", level='ERROR')
-    finally:
-        await exchange.close()
-
-# بوٹ کو مسلسل چلانے کا فنکشن
-async def run_bot():
-    log("Starting bot...")
-    while True:
-        try:
-            mem_usage = log_memory_usage()
-            if mem_usage > 300:
-                log("Memory usage exceeds 300 MB, optimizing...", level='ERROR')
-                # غیر ضروری ڈیٹا صاف کرو
-                import gc
-                gc.collect()
-            log("Initiating scan_symbols...")
-            await scan_symbols()
-        except Exception as e:
-            log(f"Error in run_bot: {e}", level='ERROR')
-        log("Waiting 60 seconds before next scan...")
-        await asyncio.sleep(60)
-
-# مین ایپلیکیشن
-if __name__ == "__main__":
-    log("Main application starting...")
-    if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_API_SECRET"):
-        log("BINANCE_API_KEY or BINANCE_API_SECRET not set in environment!", level='ERROR')
-        exit(1)
-
-    try:
-        loop = asyncio.get_event_loop()
-        log("Creating run_bot task...")
-        loop.create_task(run_bot())
-        log("Starting Uvicorn server...")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
-    except Exception as e:
-        log(f"Error in main application: {e}", level='ERROR')
-        exit(1)
+    final_dir = max(set(decisions), key=decisions.count)
+    avg_confidence = round(sum(confidences) / len(confidences), 2)
+    avg_tp1 = round(sum(tp1_probs) / len(tp1_probs), 2)
+    
+    # 15m ٹائم فریم سے مکمل سگنل لے لو اگر فیصلہ میچ کرتا ہے
+    primary_signal = all_data.get('15m', {})
+    if primary_signal.get('direction') == final_dir:
+        log(f"[{symbol}] Using 15m signal for full details")
+        return {
+            'symbol': symbol,
+            'signal': final_dir,
+            'confidence': avg_confidence,
+            'tp1_chance': avg_tp1,
+            'price': primary_signal.get('price', 0),
+            'tp1': primary_signal.get('tp1', 0),
+            'tp2': primary_signal.get('tp2', 0),
+            'tp3': primary_signal.get('tp3', 0),
+            'sl': primary_signal.get('sl', 0),
+            'atr': primary_signal.get('atr', 0.01),
+            'leverage': primary_signal.get('leverage', 10),
+            'trade_type': primary_signal.get('trade_type', 'Scalping'),
+            'tp2_possibility': primary_signal.get('tp2_possibility', 0),
+            'tp3_possibility': primary_signal.get('tp3_possibility', 0),
+            'support': primary_signal.get('support', 0),
+            'resistance': primary_signal.get('resistance', 0)
+        }
+    
+    log(f"[{symbol}] Fallback to basic signal")
+    return {
+        'symbol': symbol,
+        'signal': final_dir,
+        'confidence': avg_confidence,
+        'tp1_chance': avg_tp1,
+        'atr': primary_signal.get('atr', 0.01)
+    }
