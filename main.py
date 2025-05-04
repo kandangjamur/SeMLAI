@@ -18,14 +18,15 @@ logger = setup_logger("scanner")
 # FastAPI ایپ
 app = FastAPI()
 
-# کنفیڈنس اور TP1 کی حد (درستگی کے لیے سخت کیا)
-CONFIDENCE_THRESHOLD = 70  # 70% سے زیادہ کنفیڈنس والے سگنلز
+# کنفیڈنس اور TP1 کی حد (درستگی کے لیے)
+CONFIDENCE_THRESHOLD = 70  # 70% سے زیادہ کنفیڈنس
 TP1_POSSIBILITY_THRESHOLD = 0.7  # 70% سے زیادہ TP1 امکان
+SCALPING_CONFIDENCE_THRESHOLD = 85  # 85 سے کم کنفیڈنس اسکیلپنگ کے لیے
 
 # ہیلتھ چیک اینڈ پوائنٹ
 @app.get("/")
 async def root():
-    return {"message": "Bot is running."}
+    return {"message": "Crypto Signal Bot is running."}
 
 # بائننس سے تمام USDT پیئرز لینے کا فنکشن
 async def get_valid_symbols(exchange):
@@ -33,7 +34,7 @@ async def get_valid_symbols(exchange):
         markets = await exchange.load_markets()
         # صرف USDT پیئرز فلٹر کرو
         usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT')]
-        logger.info(f"Found {len(usdtiprocessing symbols)} USDT pairs")
+        logger.info(f"Found {len(usdt_symbols)} USDT pairs")
         return usdt_symbols
     except Exception as e:
         logger.error(f"Error fetching symbols: {e}")
@@ -47,13 +48,14 @@ async def scan_symbols():
     exchange = ccxt.binance({
         'apiKey': os.getenv("BINANCE_API_KEY"),
         'secret': os.getenv("BINANCE_API_SECRET"),
+        'enableRateLimit': True,  # API ریٹ لمٹ سے بچاؤ
     })
 
     # API کیز چیک کرو
     api_key = os.getenv("BINANCE_API_KEY")
     api_secret = os.getenv("BINANCE_API_SECRET")
     if not api_key or not api_secret:
-        logger.error("API Key or Secret is missing!")
+        logger.error("API Key or Secret is missing! Check Heroku Config Vars.")
         return
 
     try:
@@ -75,20 +77,26 @@ async def scan_symbols():
                 tp1_possibility = result.get("tp1_chance", 0)
                 direction = result.get("signal", "none")
                 atr = result.get("atr", 0.01)
+                trade_type = "Scalping" if confidence < SCALPING_CONFIDENCE_THRESHOLD else "Normal"
 
-                logger.info(f"🔍 {symbol} | Confidence: {confidence:.2f} | Direction: {direction} | TP1 Chance: {tp1_possibility:.2f} | ATR: {atr:.4f}")
+                logger.info(
+                    f"🔍 {symbol} | Trade Type: {trade_type} | "
+                    f"Confidence: {confidence:.2f} | Direction: {direction} | "
+                    f"TP1 Chance: {tp1_possibility:.2f} | ATR: {atr:.4f}"
+                )
 
                 # اگر کنفیڈنس اور TP1 امکان حد سے زیادہ ہو، تو میسیج بھیجو
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
                     message = (
                         f"🚀 {symbol}\n"
+                        f"Trade Type: {trade_type}\n"
                         f"Direction: {direction}\n"
                         f"Confidence: {confidence:.2f}\n"
                         f"TP1 Possibility: {tp1_possibility:.2f}\n"
                         f"ATR: {atr:.4f}"
                     )
                     await send_telegram_message(message)
-                    logger.info(f"✅ Signal SENT for {symbol} ✅")
+                    logger.info(f"✅ Signal SENT for {symbol} (Type: {trade_type}) ✅")
                 elif confidence < CONFIDENCE_THRESHOLD:
                     logger.info(f"⚠️ {symbol} - Skipped (Low confidence: {confidence:.2f})")
                 elif tp1_possibility < TP1_POSSIBILITY_THRESHOLD:
@@ -107,11 +115,19 @@ async def scan_symbols():
 # بٹ کو مسلسل چلانے کا فنکشن
 async def run_bot():
     while True:
-        await scan_symbols()
+        try:
+            await scan_symbols()
+        except Exception as e:
+            logger.error(f"Error in run_bot: {e}")
         await asyncio.sleep(60)  # ہر منٹ سکین کرو
 
 # مین ایپلیکیشن
 if __name__ == "__main__":
+    # API کیز کی دستیابی چیک کرو
+    if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_API_SECRET"):
+        logger.error("BINANCE_API_KEY or BINANCE_API_SECRET not set in environment!")
+        exit(1)
+
     loop = asyncio.get_event_loop()
     loop.create_task(run_bot())
     uvicorn.run(app, host="0.0.0.0", port=8000)
