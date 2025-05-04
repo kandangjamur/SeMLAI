@@ -1,101 +1,127 @@
 import pandas as pd
-import numpy as np
 import ta
+from utils.support_resistance import detect_sr_levels
+from utils.fibonacci import calculate_fibonacci_levels
+from core.candle_patterns import is_bullish_engulfing, is_breakout_candle, is_bearish_engulfing
+import numpy as np
+from utils.logger import log
 
-def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    # Price Change %
-    df['returns'] = df['close'].pct_change()
+def calculate_indicators(symbol, ohlcv):
+    try:
+        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df = df.dropna()
+        df = df[(df['close'] > 0) & (df['high'] > 0) & (df['low'] > 0) & (df['volume'] > 0)]
+        df = df[df['high'] > df['low']]
 
-    # RSI
-    df['rsi'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
+        if len(df) < 50:
+            return None
 
-    # MACD
-    macd = ta.trend.MACD(close=df['close'])
-    df['macd'] = macd.macd()
-    df['macd_signal'] = macd.macd_signal()
+        if df['close'].std() <= 0 or df['volume'].mean() < 1000:
+            return None
 
-    # EMA 20 / 50 / 100 / 200
-    df['ema20'] = ta.trend.EMAIndicator(close=df['close'], window=20).ema_indicator()
-    df['ema50'] = ta.trend.EMAIndicator(close=df['close'], window=50).ema_indicator()
-    df['ema100'] = ta.trend.EMAIndicator(close=df['close'], window=100).ema_indicator()
-    df['ema200'] = ta.trend.EMAIndicator(close=df['close'], window=200).ema_indicator()
+        df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20, fillna=True).ema_indicator()
+        df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50, fillna=True).ema_indicator()
+        df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14, fillna=True).rsi()
+        macd = ta.trend.MACD(df["close"], fillna=True)
+        df["macd"] = macd.macd()
+        df["macd_signal"] = macd.macd_signal()
+        df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], fillna=True).average_true_range()
+        df["vwap"] = calculate_vwap(df)
+        df["adx"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=14, fillna=True).adx()
+        df["stoch_rsi"] = ta.momentum.StochRSIIndicator(df["close"], fillna=True).stochrsi_k()
+        bb = ta.volatility.BollingerBands(df["close"], window=20, window_dev=2)
+        df["bb_upper"] = bb.bollinger_hband()
+        df["bb_lower"] = bb.bollinger_lband()
+        df["mfi"] = ta.volume.MFIIndicator(df["high"], df["low"], df["close"], df["volume"]).money_flow_index()
+        df["cci"] = ta.trend.CCIIndicator(df["high"], df["low"], df["close"], window=20).cci()
 
-    # Bollinger Bands
-    bb = ta.volatility.BollingerBands(close=df['close'], window=20, window_dev=2)
-    df['bb_upper'] = bb.bollinger_hband()
-    df['bb_lower'] = bb.bollinger_lband()
+        latest = df.iloc[-1]
+        direction = "LONG" if latest["ema_20"] > latest["ema_50"] else "SHORT"
+        confidence = 0
 
-    # Stochastic RSI
-    stoch = ta.momentum.StochRSIIndicator(close=df['close'], window=14)
-    df['stoch_k'] = stoch.stochrsi_k()
-    df['stoch_d'] = stoch.stochrsi_d()
+        if direction == "LONG":
+            confidence += 20 if latest["ema_20"] > latest["ema_50"] else 0
+            confidence += 15 if latest["rsi"] > 60 else 0
+            confidence += 15 if latest["macd"] > latest["macd_signal"] else 0
+            confidence += 10 if latest["adx"] > 25 else 0
+            confidence += 10 if latest["stoch_rsi"] < 0.25 else 0
+            confidence += 15 if is_bullish_engulfing(df) else 0
+            confidence += 15 if is_breakout_candle(df, direction="LONG") else 0
+            confidence += 10 if latest["close"] > latest["vwap"] else 0
+            confidence += 10 if calculate_rsi_divergence(df["close"], df["rsi"]) else 0
+            confidence += 10 if latest["mfi"] > 50 else 0
+            confidence += 10 if latest["cci"] > 100 else 0
+        else:
+            confidence += 20 if latest["ema_20"] < latest["ema_50"] else 0
+            confidence += 15 if latest["rsi"] < 40 else 0
+            confidence += 15 if latest["macd"] < latest["macd_signal"] else 0
+            confidence += 10 if latest["adx"] > 25 else 0
+            confidence += 10 if latest["stoch_rsi"] > 0.75 else 0
+            confidence += 15 if is_bearish_engulfing(df) else 0
+            confidence += 15 if is_breakout_candle(df, direction="SHORT") else 0
+            confidence += 10 if latest["close"] < latest["vwap"] else 0
+            confidence += 10 if calculate_rsi_divergence(df["close"], df["rsi"]) else 0
+            confidence += 10 if latest["mfi"] < 50 else 0
+            confidence += 10 if latest["cci"] < -100 else 0
 
-    # MFI
-    df['mfi'] = ta.volume.MFIIndicator(high=df['high'], low=df['low'], close=df['close'], volume=df['volume']).money_flow_index()
+        if latest["atr"] < df["atr"][-10:].mean() * 0.5:
+            return None
 
-    # CCI
-    df['cci'] = ta.trend.CCIIndicator(high=df['high'], low=df['low'], close=df['close'], window=20).cci()
+        price = latest["close"]
+        atr = latest["atr"]
+        fib = calculate_fibonacci_levels(price, direction=direction)
+        tp1 = round(fib.get("tp1", price + atr * 1.2 if direction == "LONG" else price - atr * 1.2), 4)
+        tp2 = round(fib.get("tp2", price + atr * 2.0 if direction == "LONG" else price - atr * 2.0), 4)
+        tp3 = round(fib.get("tp3", price + atr * 3.0 if direction == "LONG" else price - atr * 3.0), 4)
 
-    # ADX
-    df['adx'] = ta.trend.ADXIndicator(high=df['high'], low=df['low'], close=df['close'], window=14).adx()
+        sr = detect_sr_levels(df)
+        support = sr.get("support")
+        resistance = sr.get("resistance")
 
-    # ATR
-    df['atr'] = ta.volatility.AverageTrueRange(high=df['high'], low=df['low'], close=df['close']).average_true_range()
+        sl = round(support if support and direction == "LONG" else resistance if resistance and direction == "SHORT" else price - atr * 0.8 if direction == "LONG" else price + atr * 0.8, 4)
+        trade_type = "Normal" if confidence >= 85 else "Scalping"
+        possibility = min(confidence + 5, 95)
 
-    # OBV
-    df['obv'] = ta.volume.OnBalanceVolumeIndicator(close=df['close'], volume=df['volume']).on_balance_volume()
+        signal = {
+            "symbol": symbol,
+            "price": price,
+            "direction": direction,
+            "confidence": confidence,
+            "trade_type": trade_type,
+            "timestamp": latest["timestamp"],
+            "tp1": tp1,
+            "tp2": tp2,
+            "tp3": tp3,
+            "sl": sl,
+            "atr": atr,
+            "leverage": 10,
+            "support": support,
+            "resistance": resistance,
+            "tp1_possibility": possibility,
+            "tp2_possibility": possibility - 10,
+            "tp3_possibility": possibility - 20
+        }
 
-    # VWAP (manual)
-    df['vwap'] = (df['volume'] * (df['high'] + df['low'] + df['close']) / 3).cumsum() / df['volume'].cumsum()
+        log(f"Indicators calculated for {symbol}: direction={direction}, confidence={confidence}")
+        return signal
 
-    # Trend & Confidence Logic
-    df['direction'] = 'none'
-    df['confidence'] = 0.0
-    df['tp1_chance'] = 0.0
+    except Exception as e:
+        log(f"Error calculating indicators for {symbol}: {e}", level='ERROR')
+        return None
 
-    for i in range(len(df)):
-        score = 0
-        tp_score = 0
+def calculate_vwap(df):
+    try:
+        typical_price = (df["high"] + df["low"] + df["close"]) / 3
+        return (typical_price * df["volume"]).cumsum() / df["volume"].cumsum()
+    except:
+        return df["close"]
 
-        # Price above EMA
-        if df['close'].iloc[i] > df['ema20'].iloc[i]: score += 1
-        if df['close'].iloc[i] > df['ema50'].iloc[i]: score += 1
-        if df['close'].iloc[i] > df['ema100'].iloc[i]: score += 1
-        if df['close'].iloc[i] > df['ema200'].iloc[i]: score += 1
-
-        # RSI bullish
-        if df['rsi'].iloc[i] > 50: score += 1
-        if df['rsi'].iloc[i] < 30: score -= 1
-
-        # MACD
-        if df['macd'].iloc[i] > df['macd_signal'].iloc[i]: score += 1
-        else: score -= 1
-
-        # MFI
-        if df['mfi'].iloc[i] > 50: score += 1
-        if df['mfi'].iloc[i] < 20: score -= 1
-
-        # Stochastic
-        if df['stoch_k'].iloc[i] > df['stoch_d'].iloc[i]: score += 1
-
-        # CCI
-        if df['cci'].iloc[i] > 100: score += 1
-        if df['cci'].iloc[i] < -100: score -= 1
-
-        # ADX strong trend
-        if df['adx'].iloc[i] > 20: score += 1
-
-        # Bollinger logic
-        if df['close'].iloc[i] < df['bb_lower'].iloc[i]: tp_score += 1
-        if df['close'].iloc[i] > df['bb_upper'].iloc[i]: tp_score += 1
-
-        # Final assignment
-        direction = 'LONG' if score >= 5 else 'SHORT' if score <= -5 else 'none'
-        confidence = round(abs(score) / 10 * 100, 2)
-        tp1_possibility = round(tp_score / 2, 2)
-
-        df.at[df.index[i], 'direction'] = direction
-        df.at[df.index[i], 'confidence'] = confidence
-        df.at[df.index[i], 'tp1_chance'] = tp1_possibility
-
-    return df
+def calculate_rsi_divergence(prices, rsi):
+    try:
+        if len(prices) < 3 or len(rsi) < 3:
+            return False
+        price_diff = prices.iloc[-1] - prices.iloc[-2]
+        rsi_diff = rsi.iloc[-1] - rsi.iloc[-2]
+        return (price_diff > 0 and rsi_diff < 0) or (price_diff < 0 and rsi_diff > 0)
+    except:
+        return False
