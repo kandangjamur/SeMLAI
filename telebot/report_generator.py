@@ -7,7 +7,6 @@ from utils.logger import log
 
 BOT_TOKEN = "7620836100:AAEEe4yAP18Lxxj0HoYfH8aeX4PetAxYsV0"
 CHAT_ID = "-4694205383"
-ADMIN_CHAT_ID = "-1234567890"  # Replace with your admin chat ID
 
 async def send_telegram_message(message: str):
     try:
@@ -34,18 +33,8 @@ async def send_telegram_message(message: str):
                     log_report_status(False, str(e))
                 await asyncio.sleep(2)
 
-            # Send admin alert on failure
-            admin_message = f"⚠️ *Emergency Alert*: Failed to send daily report after 3 attempts."
-            admin_payload = {
-                "chat_id": ADMIN_CHAT_ID,
-                "text": admin_message,
-                "parse_mode": "Markdown"
-            }
-            try:
-                await client.post(url, json=admin_payload)
-                log("Admin alert sent for report failure")
-            except Exception as e:
-                log(f"Failed to send admin alert: {e}", level='ERROR')
+            # Log failure after 3 attempts, no admin alert
+            log("Failed to send daily report after 3 attempts", level='ERROR')
 
     except Exception as e:
         log(f"Error in send_telegram_message: {e}", level='ERROR')
