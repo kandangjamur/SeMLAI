@@ -21,11 +21,13 @@ SCALPING_CONFIDENCE_THRESHOLD = 85  # 85 سے کم کنفیڈنس اسکیلپن
 # ہیلتھ چیک اینڈ پوائنٹ (روٹ)
 @app.get("/")
 async def root():
+    log("Root endpoint accessed")
     return {"message": "Crypto Signal Bot is running."}
 
 # ہیلتھ چیک اینڈ پوائنٹ (Koyeb کے لیے)
 @app.get("/health")
 async def health():
+    log("Health check endpoint accessed")
     return {"status": "healthy", "message": "Bot is operational."}
 
 # بائننس سے تمام USDT پیئرز لینے کا فنکشن
@@ -149,6 +151,7 @@ async def run_bot():
     log("Starting bot...")
     while True:
         try:
+            log("Initiating scan_symbols...")
             await scan_symbols()
         except Exception as e:
             log(f"Error in run_bot: {e}", level='ERROR')
@@ -157,11 +160,18 @@ async def run_bot():
 
 # مین ایپلیکیشن
 if __name__ == "__main__":
+    log("Main application starting...")
     # API کیز کی دستیابی چیک کرو
     if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_API_SECRET"):
         log("BINANCE_API_KEY or BINANCE_API_SECRET not set in environment!", level='ERROR')
         exit(1)
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(run_bot())
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        loop = asyncio.get_event_loop()
+        log("Creating run_bot task...")
+        loop.create_task(run_bot())
+        log("Starting Uvicorn server...")
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    except Exception as e:
+        log(f"Error in main application: {e}", level='ERROR')
+        exit(1)
