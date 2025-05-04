@@ -77,19 +77,19 @@ async def initialize_binance():
 async def load_symbols(exchange):
     try:
         markets = exchange.markets
-        invalid_symbols = [
-            'TUSD/USDT', 'USDC/USDT', 'BUSD/USDT', 'LUNA/USDT', 'WING/USDT',
-            'TFUEL/USDT', 'WIN/USDT', 'WAN/USDT', 'EUR/USDT', 'LTO/USDT',
-            'MBL/USDT', 'DATA/USDT', 'ARDR/USDT', 'DCR/USDT', 'KMD/USDT',
-            'BCC/USDT', 'HC/USDT', 'MCO/USDT', 'NANO/USDT', 'BCN/USDT',
-            'BTS/USDT', 'XZC/USDT', 'LSK/USDT'
-        ]
-        symbols = [
-            s['symbol'] for s in markets.values()
-            if s['quote'] == 'USDT' and s['active'] and s['symbol'] in exchange.symbols
-            and not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
-            and s['symbol'] not in invalid_symbols
-        ]
+        symbols = []
+        for s in markets.values():
+            if (
+                s['quote'] == 'USDT' and 
+                s['active'] and 
+                s['symbol'] in exchange.symbols and
+                not any(x in s['symbol'] for x in ["UP/USDT", "DOWN/USDT", "BULL", "BEAR", "3S", "3L", "5S", "5L"])
+            ):
+                try:
+                    await exchange.fetch_ticker(s['symbol'])
+                    symbols.append(s['symbol'])
+                except Exception as e:
+                    log(f"Skipping {s['symbol']}: {e}", level='INFO')
         log(f"Loaded {len(symbols)} valid USDT symbols")
         return symbols
     except Exception as e:
@@ -134,13 +134,26 @@ async def get_last_direction(symbol, exchange):
         current_price = ticker["last"]
         time_elapsed = time.time() - timestamp
 
+        # Check if TP1, TP2, TP3, SL hit or trade expired
         if direction == "LONG":
-            if current_price >= tp1 or current_price >= tp2 or current_price >= tp3 or current_price <= sl or time_elapsed >= 5 * 3600:
-                return None
+            if (
+                current_price >= tp1 or 
+                current_price >= tp2 or 
+                current_price >= tp3 or 
+                current_price <= sl or 
+                time_elapsed >= 5 * 3600
+            ):
+                return None  # Trade completed or expired
         elif direction == "SHORT":
-            if current_price <= tp1 or current_price <= tp2 or current_price <= tp3 or current_price >= sl or time_elapsed >= 5 * 3600:
-                return None
-        return direction, tp1, entry_price
+            if (
+                current_price <= tp1 or 
+                current_price <= tp2 or 
+                current_price <= tp3 or 
+                current_price >= sl or 
+                time_elapsed >= 5 * 3600
+            ):
+                return None  # Trade completed or expired
+        return direction, tp1, tp2, entry_price
     except Exception as e:
         log(f"Error checking last direction for {symbol}: {e}", level='ERROR')
         return None
@@ -183,11 +196,19 @@ async def process_symbol(symbol, exchange, sent_signals, current_date, processed
 
         last_info = await get_last_direction(symbol, exchange)
         if last_info:
-            last_dir, tp1, entry_price = last_info
+            last_dir, tp1, tp2, entry_price = last_info
+            # Block new signal unless it's a reverse trade
+            if last_dir == signal["prediction"]:
+                return None  # Same direction, wait for TP1/TP2
+            # Allow reverse trade only if TP1 or TP2 hit
+            ticker = await exchange.fetch_ticker(symbol)
+            current_price = ticker["last"]
             if last_dir == "LONG" and signal["prediction"] == "SHORT":
-                return None
-            if last_dir == "SHORT" and signal["prediction"] == "LONG":
-                return None
+                if current_price < tp1 and current_price < tp2:
+                    return None  # TP1/TP2 not hit, block reverse
+            elif last_dir == "SHORT" and signal["prediction"] == "LONG":
+                if current_price > tp1 and current_price > tp2:
+                    return None  # TP1/TP2 not hit, block reverse
 
         confidence = min(signal.get("confidence", 0), 100)  # Cap confidence at 100
         tp1_possibility = signal.get("tp1_chance", 0)
@@ -237,13 +258,6 @@ async def scan_symbols():
         await exchange.close()
         return
 
-    blacklisted = [
-        "NKN/USDT", "ARPA/USDT", "HBAR/USDT", "STX/USDT", "KAVA/USDT", "JST/USDT",
-        "TFUEL/USDT", "WIN/USDT", "WAN/USDT", "EUR/USDT", "LTO/USDT", "MBL/USDT",
-        "DATA/USDT", "ARDR/USDT", "DCR/USDT", "KMD/USDT", "BCC/USDT", "HC/USDT",
-        "MCO/USDT", "NANO/USDT", "BCN/USDT", "BTS/USDT", "XZC/USDT", "LSK/USDT"
-    ]
-    symbols = [s for s in symbols if s not in blacklisted]
     sent_signals = load_sent_signals()
     BATCH_SIZE = 10
 
