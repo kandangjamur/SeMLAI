@@ -5,7 +5,7 @@ from core.whale_detector import detect_whale_activity
 from utils.logger import log
 import pandas as pd
 import psutil
-from python_telegram_bot import Bot
+from telegram import Bot
 import os
 from dotenv import load_dotenv
 
