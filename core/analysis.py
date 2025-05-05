@@ -1,128 +1,108 @@
-import asyncio
 import pandas as pd
+import asyncio
 from core.indicators import calculate_indicators
-from data.backtest import run_backtest_symbol
-from core.multi_timeframe import multi_timeframe_boost
+from core.candle_patterns import is_bullish_engulfing, is_bearish_engulfing, is_doji
+from utils.support_resistance import detect_breakout
+from utils.fibonacci import calculate_fibonacci_levels
+from model.predictor import predict_confidence
+from core.news_sentiment import fetch_sentiment, adjust_confidence
 from utils.logger import log
-import ccxt.async_support as ccxt
-
-TIMEFRAMES = ['15m', '1h', '4h', '1d']
-
-async def fetch_ohlcv(exchange, symbol, timeframe, limit=100):
-    try:
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-        if not ohlcv or len(ohlcv) < 50:
-            log(f"[{symbol}] Insufficient OHLCV data for {timeframe}", level='ERROR')
-            return None
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'], dtype='float32')
-        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-        return df
-    except Exception as e:
-        log(f"[{symbol}] Failed to fetch OHLCV for {timeframe}: {e}", level='ERROR')
-        return None
-
-async def whale_check(symbol, exchange):
-    try:
-        ticker = await exchange.fetch_ticker(symbol)
-        volume = ticker.get('quoteVolume', 0)
-        return volume > 2000000  # 2M+ USDT volume
-    except:
-        return False
 
 async def analyze_symbol(exchange, symbol):
     try:
-        # Whale volume check
-        if not await whale_check(symbol, exchange):
-            log(f"[{symbol}] Insufficient whale volume", level='WARNING')
-            return None
+        timeframes = ["15m", "1h", "4h", "1d"]
+        signals = []
 
-        all_data = {}
-        for tf in TIMEFRAMES:
-            df = await fetch_ohlcv(exchange, symbol, tf)
+        for timeframe in timeframes:
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)
+            df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+
+            if len(df) < 50 or df["volume"].mean() < 50_000:
+                log(f"[{symbol}] Insufficient data or low volume for {timeframe}", level='WARNING')
+                continue
+
+            df = calculate_indicators(df)
             if df is None:
-                log(f"[{symbol}] Skipping {tf} due to fetch failure", level='ERROR')
+                log(f"[{symbol}] No indicators for {timeframe}", level='WARNING')
                 continue
-            signal = calculate_indicators(symbol, df)
-            if signal is None:
-                log(f"[{symbol}] No signal for {tf}", level='ERROR')
-                continue
-            all_data[tf] = signal
 
-        if not all_data:
+            confidence = 50.0
+            direction = None
+
+            # Rule-based signals
+            if df["rsi"].iloc[-1] < 30 and df["stoch_rsi"].iloc[-1] < 20:
+                direction = "LONG"
+                confidence += 20
+            elif df["rsi"].iloc[-1] > 70 and df["stoch_rsi"].iloc[-1] > 80:
+                direction = "SHORT"
+                confidence += 20
+
+            if df["macd"].iloc[-1] > df["macd_signal"].iloc[-1] and df["macd"].iloc[-2] <= df["macd_signal"].iloc[-2]:
+                confidence += 10
+            elif df["macd"].iloc[-1] < df["macd_signal"].iloc[-1] and df["macd"].iloc[-2] >= df["macd_signal"].iloc[-2]:
+                confidence += 10
+
+            if df["close"].iloc[-1] > df["bb_upper"].iloc[-1]:
+                confidence -= 10
+            elif df["close"].iloc[-1] < df["bb_lower"].iloc[-1]:
+                confidence -= 10
+
+            # Candle patterns
+            if is_bullish_engulfing(df.iloc[-2:]):
+                confidence += 10
+                direction = "LONG"
+            elif is_bearish_engulfing(df.iloc[-2:]):
+                confidence += 10
+                direction = "SHORT"
+            elif is_doji(df.iloc[-1:]):
+                confidence -= 5
+
+            # Breakout detection
+            breakout = detect_breakout(symbol, df)
+            if breakout["is_breakout"]:
+                confidence += 15
+                direction = "LONG" if breakout["direction"] == "up" else "SHORT"
+
+            # ML confidence
+            ml_confidence = predict_confidence(symbol, df)
+            confidence = (confidence + ml_confidence) / 2
+
+            # Sentiment adjustment
+            sentiment_score = await fetch_sentiment(symbol)
+            confidence = adjust_confidence(symbol, confidence, sentiment_score)
+
+            # Fibonacci levels for TP/SL
+            fib_levels = calculate_fibonacci_levels(df)
+            tp1 = fib_levels["0.382"] if direction == "LONG" else fib_levels["-0.382"]
+            tp2 = fib_levels["0.618"] if direction == "LONG" else fib_levels["-0.618"]
+            tp3 = fib_levels["1.0"] if direction == "LONG" else fib_levels["-1.0"]
+            sl = fib_levels["-0.236"] if direction == "LONG" else fib_levels["0.236"]
+
+            signal = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "direction": direction,
+                "price": df["close"].iloc[-1],
+                "confidence": min(95, round(confidence, 2)),
+                "tp1": tp1,
+                "tp2": tp2,
+                "tp3": tp3,
+                "sl": sl,
+                "tp1_chance": 75 if confidence >= 80 else 50,
+                "timestamp": df["timestamp"].iloc[-1]
+            }
+
+            if signal["confidence"] >= 80 and signal["tp1_chance"] >= 75:
+                signals.append(signal)
+                log(f"[{symbol}] Signal for {timeframe}: {signal['direction']}, Confidence: {signal['confidence']}%")
+
+        if not signals:
             log(f"[{symbol}] No valid signals for any timeframe", level='ERROR')
             return None
 
-        # Higher timeframe alignment (4h/1d EMA)
-        higher_tf_signal = all_data.get('4h') or all_data.get('1d')
-        if higher_tf_signal and higher_tf_signal['direction'] != all_data.get('15m', {}).get('direction'):
-            log(f"[{symbol}] Higher timeframe misalignment", level='WARNING')
-            return None
-
-        # Backtesting confirmation
-        backtest_result = await run_backtest_symbol(exchange, symbol)
-        if not backtest_result or backtest_result.get('tp1_hit_rate', 0) < 70:
-            log(f"[{symbol}] Backtest failed: TP1 hit rate < 70%", level='WARNING')
-            return None
-
-        decisions = []
-        confidences = []
-        tp1_probs = []
-
-        for tf, signal in all_data.items():
-            direction = signal.get('direction', 'none')
-            confidence = signal.get('confidence', 0)
-            tp1_prob = signal.get('tp1_possibility', 0)
-            if direction != 'none':
-                decisions.append(direction)
-                confidences.append(confidence)
-                tp1_probs.append(tp1_prob)
-
-        if not decisions:
-            log(f"[{symbol}] No valid decisions", level='ERROR')
-            return None
-
-        final_dir = max(set(decisions), key=decisions.count)
-        avg_confidence = round(sum(confidences) / len(confidences), 2)
-        avg_tp1 = round(sum(tp1_probs) / len(tp1_probs), 2)
-
-        # Multi-timeframe boost
-        boost = await multi_timeframe_boost(symbol, exchange, final_dir)
-        avg_confidence = min(95, avg_confidence + boost)
-
-        primary_signal = all_data.get('15m', {})
-        if primary_signal.get('direction') == final_dir and avg_confidence >= 80 and avg_tp1 >= 75:
-            log(f"[{symbol}] Using 15m signal with backtest confirmation")
-            signal = {
-                'symbol': symbol,
-                'signal': final_dir,
-                'confidence': avg_confidence,
-                'tp1_chance': avg_tp1,
-                'price': primary_signal.get('price', 0),
-                'tp1': primary_signal.get('tp1', 0),
-                'tp2': primary_signal.get('tp2', 0),
-                'tp3': primary_signal.get('tp3', 0),
-                'sl': primary_signal.get('sl', 0),
-                'atr': primary_signal.get('atr', 0.01),
-                'leverage': primary_signal.get('leverage', 10),
-                'trade_type': primary_signal.get('trade_type', 'Scalping'),
-                'tp2_possibility': primary_signal.get('tp2_possibility', 0),
-                'tp3_possibility': primary_signal.get('tp3_possibility', 0),
-                'support': primary_signal.get('support', 0),
-                'resistance': primary_signal.get('resistance', 0),
-                'indicators_used': primary_signal.get('indicators_used', ''),
-                'backtest_result': backtest_result.get('tp1_hit_rate', 0)
-            }
-            
-            # Zero value check
-            if any(v <= 0 for v in [signal['price'], signal['tp1'], signal['tp2'], signal['tp3'], signal['sl']]):
-                log(f"[{symbol}] Zero value detected in final signal", level='ERROR')
-                return None
-                
-            return signal
-        
-        log(f"[{symbol}] Fallback to basic signal")
-        return None
-
+        best_signal = max(signals, key=lambda x: x["confidence"])
+        return best_signal
     except Exception as e:
-        log(f"[{symbol}] Error in analyze_symbol: {e}", level='ERROR')
+        log(f"[{symbol}] Error in analysis: {e}", level='ERROR')
         return None
