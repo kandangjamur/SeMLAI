@@ -1,21 +1,25 @@
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse
-import ccxt.async_support as ccxt
 from utils.logger import log
+import psutil
+import os
 
 app = FastAPI()
 templates = Jinja2Templates(directory="dashboard/templates")
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def dashboard(request: Request):
-    exchange = ccxt.binance({"enableRateLimit": True})
     try:
-        markets = await exchange.load_markets()
-        symbols = [s for s in markets.keys() if s.endswith("/USDT")][:10]
-        return templates.TemplateResponse("dashboard.html", {"request": request, "symbols": symbols})
+        # Log memory and CPU usage
+        memory = psutil.Process().memory_info().rss / 1024 / 1024
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        log(f"[Dashboard] Loading - Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
+
+        if not os.path.exists("dashboard/templates/dashboard.html"):
+            log("Dashboard template 'dashboard.html' not found", level='ERROR')
+            return {"error": "Dashboard template not found"}
+
+        return templates.TemplateResponse("dashboard.html", {"request": request})
     except Exception as e:
-        log(f"Error loading dashboard: {e}", level='ERROR')
-        return templates.TemplateResponse("dashboard.html", {"request": request, "symbols": [], "error": str(e)})
-    finally:
-        await exchange.close()
+        log(f"[Dashboard] Error loading dashboard: {e}", level='ERROR')
+        return {"error": str(e)}
