@@ -1,7 +1,8 @@
 import asyncio
 import uvicorn
 from fastapi import FastAPI
-from core.analysis import analyze_symbol
+from core.analysis import fetch_ohlcv, analyze_symbol
+from core.indicators import calculate_indicators
 from telebot.sender import send_telegram_signal
 from utils.logger import log, log_signal_to_csv
 import ccxt.async_support as ccxt
