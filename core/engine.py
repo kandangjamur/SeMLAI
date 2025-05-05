@@ -27,8 +27,12 @@ async def run_engine():
             log(f"[{symbol}] Before analysis - Memory: {memory_before:.2f} MB, CPU: {cpu_percent:.1f}%")
 
             log(f"Analyzing {symbol}...")
-            ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=100)
-            df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
+            try:
+                ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=100)
+                df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
+            except Exception as e:
+                log(f"[{symbol}] Error fetching OHLCV: {e}", level='ERROR')
+                continue
 
             if not detect_whale_activity(symbol, df):
                 continue
@@ -46,8 +50,11 @@ async def run_engine():
                     f"TP3: {signal['tp3']:.4f}\n"
                     f"SL: {signal['sl']:.4f}"
                 )
-                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-                log(f"[{symbol}] Signal sent: {signal['direction']}, Confidence: {signal['confidence']}%")
+                try:
+                    await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+                    log(f"[{symbol}] Signal sent: {signal['direction']}, Confidence: {signal['confidence']}%")
+                except Exception as e:
+                    log(f"[{symbol}] Error sending Telegram message: {e}", level='ERROR')
 
                 # Log to CSV
                 signal_df = pd.DataFrame([signal])
@@ -66,4 +73,7 @@ async def run_engine():
     except Exception as e:
         log(f"Error in engine: {e}", level='ERROR')
     finally:
-        await exchange.close()
+        try:
+            await exchange.close()
+        except Exception as e:
+            log(f"Error closing exchange: {e}", level='ERROR')
