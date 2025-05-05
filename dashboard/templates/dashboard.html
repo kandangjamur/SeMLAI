@@ -1,79 +1,23 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>CryptoSniper Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css">
-    <script>
-        async function updateTable() {
-            const ws = new WebSocket("ws://" + window.location.host + "/ws");
-            ws.onmessage = function(event) {
-                const signals = JSON.parse(event.data);
-                const tableBody = document.querySelector("tbody");
-                tableBody.innerHTML = "";
-                signals.forEach(signal => {
-                    const row = document.createElement("tr");
-                    row.className = signal.trade_type === "Scalping" ? "scalping" : "normal";
-                    row.innerHTML = `
-                        <td>${signal.symbol}</td>
-                        <td>${signal.price.toFixed(4)}</td>
-                        <td>${signal.direction}</td>
-                        <td>${signal.tp1.toFixed(4)} (${signal.tp1_possibility.toFixed(2)}%)</td>
-                        <td>${signal.tp2.toFixed(4)} (${signal.tp2_possibility.toFixed(2)}%)</td>
-                        <td>${signal.tp3.toFixed(4)} (${signal.tp3_possibility.toFixed(2)}%)</td>
-                        <td>${signal.sl.toFixed(4)}</td>
-                        <td>${signal.confidence.toFixed(2)}%</td>
-                        <td>${signal.trade_type}</td>
-                        <td>${signal.indicators_used}</td>
-                        <td>${signal.backtest_result.toFixed(2)}%</td>
-                        <td>${signal.volume.toFixed(2)}</td>
-                        <td>${signal.timestamp}</td>
-                    `;
-                    tableBody.appendChild(row);
-                });
-            };
-        }
-        window.onload = updateTable;
-    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Bot Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        h1 { color: #333; }
+        .container { max-width: 800px; margin: auto; }
+        .status { margin-top: 20px; }
+    </style>
 </head>
 <body>
-    <h1>CryptoSniper Trading Signals</h1>
-    <table border="1">
-        <thead>
-            <tr>
-                <th>Symbol</th>
-                <th>Price</th>
-                <th>Direction</th>
-                <th>TP1 (%)</th>
-                <th>TP2 (%)</th>
-                <th>TP3 (%)</th>
-                <th>SL</th>
-                <th>Confidence</th>
-                <th>Trade Type</th>
-                <th>Indicators</th>
-                <th>Backtest</th>
-                <th>Volume</th>
-                <th>Timestamp</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for signal in signals %}
-            <tr class="{{ 'scalping' if signal.trade_type == 'Scalping' else 'normal' }}">
-                <td>{{ signal.symbol }}</td>
-                <td>{{ signal.price|floatformat(4) }}</td>
-                <td>{{ signal.direction }}</td>
-                <td>{{ signal.tp1|floatformat(4) }} ({{ signal.tp1_possibility|floatformat(2) }}%)</td>
-                <td>{{ signal.tp2|floatformat(4) }} ({{ signal.tp2_possibility|floatformat(2) }}%)</td>
-                <td>{{ signal.tp3|floatformat(4) }} ({{ signal.tp3_possibility|floatformat(2) }}%)</td>
-                <td>{{ signal.sl|floatformat(4) }}</td>
-                <td>{{ signal.confidence|floatformat(2) }}%</td>
-                <td>{{ signal.trade_type }}</td>
-                <td>{{ signal.indicators_used }}</td>
-                <td>{{ signal.backtest_result|floatformat(2) }}%</td>
-                <td>{{ signal.volume|floatformat(2) }}</td>
-                <td>{{ signal.timestamp }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
+    <div class="container">
+        <h1>Trading Bot Dashboard</h1>
+        <div class="status">
+            <p>Status: Running</p>
+            <p>Check logs for signal details.</p>
+        </div>
+    </div>
 </body>
 </html>
