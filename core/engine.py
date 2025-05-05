@@ -1,58 +1,62 @@
 import asyncio
-import pandas as pd
-from core.analysis import analyze_symbol
-from model.predictor import predict_confidence
-from core.news_sentiment import fetch_sentiment, adjust_confidence
-from utils.logger import log
 import ccxt.async_support as ccxt
-import cachetools
+from core.analysis import analyze_symbol
+from core.whale_detector import detect_whale_activity
+from utils.logger import log
+import pandas as pd
+import psutil
+from python_telegram_bot import Bot
+import os
+from dotenv import load_dotenv
 
-signal_cache = cachetools.TTLCache(maxsize=100, ttl=300)  # 5-minute cache
-
-async def process_symbol(exchange, symbol):
-    try:
-        if symbol in signal_cache:
-            log(f"[{symbol}] Using cached signal")
-            return signal_cache[symbol]
-
-        # Rule-based analysis
-        signal = await analyze_symbol(exchange, symbol)
-        if not signal or signal["confidence"] < 80:
-            log(f"[{symbol}] No valid rule-based signal")
-            return None
-
-        # ML-based confidence
-        df = await exchange.fetch_ohlcv(symbol, "15m", limit=100)
-        df = pd.DataFrame(df, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        ml_confidence = predict_confidence(symbol, df)
-        signal["confidence"] = min(95, (signal["confidence"] + ml_confidence) / 2)
-
-        # Sentiment adjustment
-        sentiment_score = await fetch_sentiment(symbol)
-        signal["confidence"] = adjust_confidence(symbol, signal["confidence"], sentiment_score)
-
-        if signal["confidence"] < 80 or signal["tp1_chance"] < 75:
-            log(f"[{symbol}] Signal filtered: Low confidence or TP1 chance")
-            return None
-
-        signal_cache[symbol] = signal
-        log(f"[{symbol}] Final signal: {signal['direction']}, Confidence: {signal['confidence']}%")
-        return signal
-    except Exception as e:
-        log(f"[{symbol}] Error in process_symbol: {e}", level='ERROR')
-        return None
+load_dotenv()
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
 async def run_engine():
     exchange = ccxt.binance({"enableRateLimit": True})
     try:
         markets = await exchange.load_markets()
-        symbols = [s for s in markets.keys() if s.endswith("/USDT") and markets[s].get("active", False)]
-        for symbol in symbols[:50]:  # Limit to 50 symbols
-            signal = await process_symbol(exchange, symbol)
-            if signal:
-                log(f"[{symbol}] Signal generated: {signal}")
-            await asyncio.sleep(0.5)
+        symbols = [s for s in markets.keys() if s.endswith("/USDT")]
+
+        for symbol in symbols:
+            log(f"Analyzing {symbol}...")
+            ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=100)
+            df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
+
+            if not detect_whale_activity(symbol, df):
+                continue
+
+            signal = await analyze_symbol(exchange, symbol)
+            if signal and signal["confidence"] >= 80 and signal["tp1_chance"] >= 75:
+                message = (
+                    f"🚨 {signal['symbol']} Signal\n"
+                    f"Timeframe: {signal['timeframe']}\n"
+                    f"Direction: {signal['direction']}\n"
+                    f"Price: {signal['price']:.4f}\n"
+                    f"Confidence: {signal['confidence']}%\n"
+                    f"TP1: {signal['tp1']:.4f} ({signal['tp1_chance']}%)\n"
+                    f"TP2: {signal['tp2']:.4f}\n"
+                    f"TP3: {signal['tp3']:.4f}\n"
+                    f"SL: {signal['sl']:.4f}"
+                )
+                await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+                log(f"[{symbol}] Signal sent: {signal['direction']}, Confidence: {signal['confidence']}%")
+
+                # Log to CSV
+                signal_df = pd.DataFrame([signal])
+                signal_df.to_csv("logs/signals_log.csv", mode="a", header=not os.path.exists("logs/signals_log.csv"), index=False)
+            else:
+                log(f"⚠️ {symbol} - No valid signal", level='INFO')
+
+            # Memory usage
+            memory = psutil.Process().memory_info().rss / 1024 / 1024
+            log(f"Memory usage: {memory:.2f} MB")
+    except ccxt.NetworkError as e:
+        log(f"Network error: {e}, retrying in 10 seconds...", level='ERROR')
+        await asyncio.sleep(10)
     except Exception as e:
-        log(f"Error in run_engine: {e}", level='ERROR')
+        log(f"Error in engine: {e}", level='ERROR')
     finally:
         await exchange.close()
