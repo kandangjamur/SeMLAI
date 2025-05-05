@@ -19,18 +19,25 @@ async def run_engine():
         # Initialize Telegram bot
         log("Initializing Telegram bot...")
         bot = Bot(token=TELEGRAM_BOT_TOKEN)
-        await bot.get_me()  # Test bot connection
-        log("Telegram bot initialized successfully")
+        try:
+            await bot.get_me()
+            log("Telegram bot initialized successfully")
+        except Exception as e:
+            log(f"Failed to initialize Telegram bot: {e}", level='ERROR')
+            return
 
         # Initialize exchange
         log("Initializing Binance exchange...")
         exchange = ccxt.binance({"enableRateLimit": True})
-        markets = await exchange.load_markets()
-        symbols = [s for s in markets.keys() if s.endswith("/USDT")]
-        log(f"Loaded {len(symbols)} USDT pairs for scanning")
+        try:
+            markets = await exchange.load_markets()
+            symbols = [s for s in markets.keys() if s.endswith("/USDT")]
+            log(f"Loaded {len(symbols)} USDT pairs for scanning")
+        except Exception as e:
+            log(f"Failed to load markets: {e}", level='ERROR')
+            return
 
         for symbol in symbols:
-            # Log memory and CPU before analysis
             memory_before = psutil.Process().memory_info().rss / 1024 / 1024
             cpu_percent = psutil.cpu_percent(interval=0.1)
             log(f"[{symbol}] Before analysis - Memory: {memory_before:.2f} MB, CPU: {cpu_percent:.1f}%")
@@ -67,7 +74,6 @@ async def run_engine():
                     except Exception as e:
                         log(f"[{symbol}] Error sending Telegram message: {e}", level='ERROR')
 
-                    # Log to CSV
                     signal_df = pd.DataFrame([signal])
                     signal_df.to_csv("logs/signals_log.csv", mode="a", header=not os.path.exists("logs/signals_log.csv"), index=False)
                 else:
@@ -76,14 +82,10 @@ async def run_engine():
                 log(f"[{symbol}] Error analyzing symbol: {e}", level='ERROR')
                 continue
 
-            # Log memory and CPU after analysis
             memory_after = psutil.Process().memory_info().rss / 1024 / 1024
             cpu_percent_after = psutil.cpu_percent(interval=0.1)
             memory_diff = memory_after - memory_before
             log(f"[{symbol}] After analysis - Memory: {memory_after:.2f} MB (Change: {memory_diff:.2f} MB), CPU: {cpu_percent_after:.1f}%")
-    except ccxt.NetworkError as e:
-        log(f"Network error: {e}, retrying in 10 seconds...", level='ERROR')
-        await asyncio.sleep(10)
     except Exception as e:
         log(f"Critical error in engine: {e}", level='ERROR')
     finally:
