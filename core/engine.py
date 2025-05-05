@@ -1,67 +1,58 @@
-import numpy as np
-from utils.logger import log
-import ta
+import asyncio
 import pandas as pd
+from core.analysis import analyze_symbol
+from model.predictor import predict_confidence
+from core.news_sentiment import fetch_sentiment, adjust_confidence
+from utils.logger import log
+import ccxt.async_support as ccxt
+import cachetools
 
-async def predict_trend(symbol, exchange):
+signal_cache = cachetools.TTLCache(maxsize=100, ttl=300)  # 5-minute cache
+
+async def process_symbol(exchange, symbol):
     try:
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe="15m", limit=50)
-        if len(ohlcv) < 20:
-            log(f"Insufficient data for trend prediction for {symbol}")
+        if symbol in signal_cache:
+            log(f"[{symbol}] Using cached signal")
+            return signal_cache[symbol]
+
+        # Rule-based analysis
+        signal = await analyze_symbol(exchange, symbol)
+        if not signal or signal["confidence"] < 80:
+            log(f"[{symbol}] No valid rule-based signal")
             return None
 
-        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        closes = df["close"].values
+        # ML-based confidence
+        df = await exchange.fetch_ohlcv(symbol, "15m", limit=100)
+        df = pd.DataFrame(df, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        ml_confidence = predict_confidence(symbol, df)
+        signal["confidence"] = min(95, (signal["confidence"] + ml_confidence) / 2)
 
-        ema12 = ta.trend.EMAIndicator(df["close"], window=12, fillna=True).ema_indicator()
-        ema26 = ta.trend.EMAIndicator(df["close"], window=26, fillna=True).ema_indicator()
-        ema_cross_long = ema12.iloc[-1] > ema26.iloc[-1] and ema12.iloc[-2] <= ema26.iloc[-2]
-        ema_cross_short = ema12.iloc[-1] < ema26.iloc[-1] and ema12.iloc[-2] >= ema26.iloc[-2]
+        # Sentiment adjustment
+        sentiment_score = await fetch_sentiment(symbol)
+        signal["confidence"] = adjust_confidence(symbol, signal["confidence"], sentiment_score)
 
-        adx = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], window=14, fillna=True).adx()
-        trend_strength = adx.iloc[-1] > 25
+        if signal["confidence"] < 80 or signal["tp1_chance"] < 75:
+            log(f"[{symbol}] Signal filtered: Low confidence or TP1 chance")
+            return None
 
-        rsi = ta.momentum.RSIIndicator(df["close"], window=14, fillna=True).rsi()
-        rsi_overbought = rsi.iloc[-1] > 70
-        rsi_oversold = rsi.iloc[-1] < 30
-
-        stoch_rsi = ta.momentum.StochRSIIndicator(df["close"], fillna=True).stochrsi_k()
-        stoch_overbought = stoch_rsi.iloc[-1] > 0.8
-        stoch_oversold = stoch_rsi.iloc[-1] < 0.2
-
-        three_candle_long = closes[-1] > closes[-2] > closes[-3]
-        three_candle_short = closes[-1] < closes[-2] < closes[-3]
-
-        confidence_long = 0
-        confidence_short = 0
-        if ema_cross_long:
-            confidence_long += 30
-        if trend_strength:
-            confidence_long += 20
-            confidence_short += 20
-        if rsi_oversold:
-            confidence_long += 20
-        if stoch_oversold:
-            confidence_long += 15
-        if three_candle_long:
-            confidence_long += 15
-        if ema_cross_short:
-            confidence_short += 30
-        if rsi_overbought:
-            confidence_short += 20
-        if stoch_overbought:
-            confidence_short += 15
-        if three_candle_short:
-            confidence_short += 15
-
-        if confidence_long >= 85 and confidence_long > confidence_short:
-            log(f"LONG trend detected for {symbol}")
-            return "LONG"
-        elif confidence_short >= 85 and confidence_short > confidence_long:
-            log(f"SHORT trend detected for {symbol}")
-            return "SHORT"
-
-        return None
+        signal_cache[symbol] = signal
+        log(f"[{symbol}] Final signal: {signal['direction']}, Confidence: {signal['confidence']}%")
+        return signal
     except Exception as e:
-        log(f"Error predicting trend for {symbol}: {e}", level='ERROR')
+        log(f"[{symbol}] Error in process_symbol: {e}", level='ERROR')
         return None
+
+async def run_engine():
+    exchange = ccxt.binance({"enableRateLimit": True})
+    try:
+        markets = await exchange.load_markets()
+        symbols = [s for s in markets.keys() if s.endswith("/USDT") and markets[s].get("active", False)]
+        for symbol in symbols[:50]:  # Limit to 50 symbols
+            signal = await process_symbol(exchange, symbol)
+            if signal:
+                log(f"[{symbol}] Signal generated: {signal}")
+            await asyncio.sleep(0.5)
+    except Exception as e:
+        log(f"Error in run_engine: {e}", level='ERROR')
+    finally:
+        await exchange.close()
