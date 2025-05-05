@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 import httpx
 import asyncio
 from datetime import datetime
@@ -44,20 +44,19 @@ def log_report_status(success: bool, message: str):
     try:
         csv_path = "logs/report_status.csv"
         timestamp = datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')
-        data = {
-            "success": success,
-            "message": message,
-            "timestamp": timestamp
-        }
-        df = pd.DataFrame([data])
+        data = pl.DataFrame({
+            "success": [success],
+            "message": [message],
+            "timestamp": [timestamp]
+        })
 
         if os.path.exists(csv_path):
-            old_df = pd.read_csv(csv_path, usecols=['success', 'message', 'timestamp'])
-            if not df.empty and not df.isna().all().all():
-                df = pd.concat([old_df, df], ignore_index=True)
+            old_df = pl.read_csv(csv_path, columns=['success', 'message', 'timestamp'])
+            if not data.is_empty():
+                data = old_df.vstack(data)
 
-        if not df.empty and not df.isna().all().all():
-            df.to_csv(csv_path, index=False)
+        if not data.is_empty():
+            data.write_csv(csv_path)
             log(f"Report status logged: Success={success}", level='INFO')
         else:
             log("No valid data to log report status", level='ERROR')
@@ -66,69 +65,69 @@ def log_report_status(success: bool, message: str):
 
 async def generate_daily_summary():
     try:
-        # صرف ضروری کالم پڑھیں تاکہ میموری کم استعمال ہو
-        df = pd.read_csv("logs/signals_log.csv", usecols=[
-            'timestamp', 'symbol', 'direction', 'entry', 'tp1', 'tp2', 'tp3', 'sl', 
-            'volume', 'confidence', 'tp1_chance', 'tp2_chance', 'tp3_chance', 
-            'timeframe', 'status', 'indicators', 'backtest_result', 'trade_type'
-        ])
-        today = datetime.now(pytz.timezone('Asia/Karachi')).date()
-        df['timestamp'] = pd.to_datetime(df['timestamp'])
-
-        # سخت فلٹرز: 0 ویلیو، کم حجم، کم کنفیڈنس ہٹائیں
-        today_signals = df[
-            (df['timestamp'].dt.date == today) & 
-            (df['entry'] > 0) & 
-            (df['tp1'] > 0) & 
-            (df['tp2'] > 0) & 
-            (df['tp3'] > 0) & 
-            (df['sl'] > 0) & 
-            (df['volume'] >= 100000) & 
-            (df['confidence'] >= 80) & 
-            (df['tp1_chance'] >= 75)
+        columns = [
+            'timestamp', 'symbol', 'direction', 'price', 'tp1', 'tp2', 'tp3', 'sl',
+            'volume', 'confidence', 'tp1_possibility', 'tp2_possibility', 'tp3_possibility',
+            'timeframe', 'status', 'indicators_used', 'backtest_result', 'trade_type'
         ]
-        if today_signals.empty:
+        df = pl.read_csv("logs/signals_log.csv", columns=columns)
+        today = datetime.now(pytz.timezone('Asia/Karachi')).date()
+        df = df.with_columns(pl.col("timestamp").cast(pl.DateTime))
+
+        # Strict filters
+        today_signals = df.filter(
+            (pl.col("timestamp").dt.date() == today) &
+            (pl.col("price") > 0) &
+            (pl.col("tp1") > 0) &
+            (pl.col("tp2") > 0) &
+            (pl.col("tp3") > 0) &
+            (pl.col("sl") > 0) &
+            (pl.col("volume") >= 100000) &
+            (pl.col("confidence") >= 80) &
+            (pl.col("tp1_possibility") >= 75)
+        )
+
+        if today_signals.is_empty():
             summary = f"📋 *Daily Report ({today})*\n\nNo valid signals generated today."
             await send_telegram_message(summary)
             log("Daily Report Sent (No signals)", level='INFO')
             return
 
         total = len(today_signals)
-        long_signals = len(today_signals[today_signals['direction'] == 'LONG'])
-        short_signals = len(today_signals[today_signals['direction'] == 'SHORT'])
-        scalping_signals = len(today_signals[today_signals['trade_type'] == 'Scalping'])
-        normal_signals = len(today_signals[today_signals['trade_type'] == 'Normal'])
-        tp1_hits = len(today_signals[today_signals['status'] == 'tp1'])
-        tp2_hits = len(today_signals[today_signals['status'] == 'tp2'])
-        tp3_hits = len(today_signals[today_signals['status'] == 'tp3'])
-        sl_hits = len(today_signals[today_signals['status'] == 'sl'])
+        long_signals = len(today_signals.filter(pl.col("direction") == "LONG"))
+        short_signals = len(today_signals.filter(pl.col("direction") == "SHORT"))
+        scalping_signals = len(today_signals.filter(pl.col("trade_type") == "Scalping"))
+        normal_signals = len(today_signals.filter(pl.col("trade_type") == "Normal"))
+        tp1_hits = len(today_signals.filter(pl.col("status") == "tp1"))
+        tp2_hits = len(today_signals.filter(pl.col("status") == "tp2"))
+        tp3_hits = len(today_signals.filter(pl.col("status") == "tp3"))
+        sl_hits = len(today_signals.filter(pl.col("status") == "sl"))
 
         total_hits = tp1_hits + tp2_hits + tp3_hits
         accuracy = round((total_hits / total * 100) if total > 0 else 0, 2)
 
-        # TP1، TP2، TP3 کی اوسط امکان
-        avg_tp1_chance = round(today_signals['tp1_chance'].mean(), 2)
-        avg_tp2_chance = round(today_signals['tp2_chance'].mean(), 2)
-        avg_tp3_chance = round(today_signals['tp3_chance'].mean(), 2)
+        avg_tp1_chance = round(today_signals["tp1_possibility"].mean(), 2)
+        avg_tp2_chance = round(today_signals["tp2_possibility"].mean(), 2)
+        avg_tp3_chance = round(today_signals["tp3_possibility"].mean(), 2)
 
-        # ٹاپ جوڑوں کی کارکردگی
-        successful_pairs = today_signals[today_signals['status'].isin(['tp1', 'tp2', 'tp3'])]
-        top_pairs = successful_pairs['symbol'].value_counts().head(3).to_dict()
-        top_pairs_str = "\n".join([f"{symbol}: {count} hits" for symbol, count in top_pairs.items()]) if top_pairs else "None"
+        successful_pairs = today_signals.filter(pl.col("status").is_in(["tp1", "tp2", "tp3"]))
+        top_pairs = successful_pairs.group_by("symbol").len().sort("len", descending=True).head(3).to_dicts()
+        top_pairs_str = "\n".join([f"{pair['symbol']}: {pair['len']} hits" for pair in top_pairs]) if top_pairs else "None"
 
-        # انڈیکیٹرز اور بیک ٹیسٹنگ
-        indicators_used = today_signals['indicators'].value_counts().head(3).to_dict() if 'indicators' in today_signals.columns else {"N/A": 0}
-        indicators_str = "\n".join([f"{ind}: {count} signals" for ind, count in indicators_used.items()])
-        backtest_success = len(today_signals[today_signals['backtest_result'] == 'SUCCESS'])
+        indicators_used = today_signals.group_by("indicators_used").len().sort("len", descending=True).head(3).to_dicts()
+        indicators_str = "\n".join([f"{ind['indicators_used']}: {ind['len']} signals" for ind in indicators_used]) if indicators_used else "N/A"
+
+        backtest_success = len(today_signals.filter(pl.col("backtest_result") >= 70))
         backtest_rate = round((backtest_success / total * 100) if total > 0 else 0, 2)
 
-        # 0 ویلیو سگنلز لاگ کریں
-        zero_signals = df[(df['timestamp'].dt.date == today) & (
-            (df['entry'] == 0) | (df['tp1'] == 0) | (df['tp2'] == 0) | 
-            (df['tp3'] == 0) | (df['sl'] == 0)
-        )]
-        if not zero_signals.empty:
-            zero_signals.to_csv("logs/zero_value_errors.csv", index=False)
+        # Log zero-value signals
+        zero_signals = df.filter(
+            (pl.col("timestamp").dt.date() == today) &
+            ((pl.col("price") == 0) | (pl.col("tp1") == 0) | (pl.col("tp2") == 0) |
+             (pl.col("tp3") == 0) | (pl.col("sl") == 0))
+        )
+        if not zero_signals.is_empty():
+            zero_signals.write_csv("logs/zero_value_errors.csv")
             log(f"Logged {len(zero_signals)} zero-value signals", level='WARNING')
 
         summary = (
@@ -149,37 +148,36 @@ async def generate_daily_summary():
             f"🕒 *Generated*: {datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')}"
         )
 
-        # رپورٹ CSV میں محفوظ کریں
+        # Save report to CSV
         csv_path = "logs/daily_reports.csv"
-        report_data = {
-            "date": str(today),
-            "total_signals": total,
-            "long_signals": long_signals,
-            "short_signals": short_signals,
-            "scalping_signals": scalping_signals,
-            "normal_signals": normal_signals,
-            "tp1_hits": tp1_hits,
-            "tp1_chance": avg_tp1_chance,
-            "tp2_hits": tp2_hits,
-            "tp2_chance": avg_tp2_chance,
-            "tp3_hits": tp3_hits,
-            "tp3_chance": avg_tp3_chance,
-            "sl_hits": sl_hits,
-            "accuracy": accuracy,
-            "top_pairs": str(top_pairs),
-            "indicators": str(indicators_used),
-            "backtest_rate": backtest_rate,
-            "timestamp": datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')
-        }
-        report_df = pd.DataFrame([report_data])
+        report_data = pl.DataFrame({
+            "date": [str(today)],
+            "total_signals": [total],
+            "long_signals": [long_signals],
+            "short_signals": [short_signals],
+            "scalping_signals": [scalping_signals],
+            "normal_signals": [normal_signals],
+            "tp1_hits": [tp1_hits],
+            "tp1_chance": [avg_tp1_chance],
+            "tp2_hits": [tp2_hits],
+            "tp2_chance": [avg_tp2_chance],
+            "tp3_hits": [tp3_hits],
+            "tp3_chance": [avg_tp3_chance],
+            "sl_hits": [sl_hits],
+            "accuracy": [accuracy],
+            "top_pairs": [str(top_pairs)],
+            "indicators": [str(indicators_used)],
+            "backtest_rate": [backtest_rate],
+            "timestamp": [datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')]
+        })
 
         if os.path.exists(csv_path):
-            old_df = pd.read_csv(csv_path, usecols=report_data.keys())
-            if not report_df.empty and not report_df.isna().all().all():
-                report_df = pd.concat([old_df, report_df], ignore_index=True)
+            old_df = pl.read_csv(csv_path, columns=report_data.columns)
+            if not report_data.is_empty():
+                report_data = old_df.vstack(report_data)
 
-        if not report_df.empty and not report_df.isna().all().all():
-            report_df.to_csv(csv_path, index=False)
+        if not report_data.is_empty():
+            report_data.write_csv(csv_path)
             log("Daily report saved to CSV", level='INFO')
 
         await send_telegram_message(summary)
