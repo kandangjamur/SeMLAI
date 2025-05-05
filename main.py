@@ -1,8 +1,8 @@
 import asyncio
 import uvicorn
 from fastapi import FastAPI
-from core.analysis import fetch_ohlcv, analyze_symbol
-from core.indicators import calculate_indicators
+from contextlib import asynccontextmanager
+from core.analysis import analyze_symbol
 from telebot.sender import send_telegram_signal
 from utils.logger import log, log_signal_to_csv
 import ccxt.async_support as ccxt
@@ -164,19 +164,34 @@ async def run_bot():
         log("Waiting 60 seconds before next scan...")
         await asyncio.sleep(60)
 
-# مین ایپلیکیشن
-if __name__ == "__main__":
+# FastAPI lifespan ایونٹ ہینڈلر
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     log("Main application starting...")
     if not os.getenv("BINANCE_API_KEY") or not os.getenv("BINANCE_API_SECRET"):
         log("BINANCE_API_KEY or BINANCE_API_SECRET not set in environment!", level='ERROR')
-        exit(1)
+        raise Exception("Missing API keys")
+
+    # run_bot کو بیک گراؤنڈ میں شروع کرو
+    bot_task = asyncio.create_task(run_bot())
+    log("Bot task started")
 
     try:
-        loop = asyncio.get_event_loop()
-        log("Creating run_bot task...")
-        loop.create_task(run_bot())
-        log("Starting Uvicorn server...")
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        yield
+    finally:
+        # ایپ بند ہونے پر bot_task کو صاف کرو
+        bot_task.cancel()
+        try:
+            await bot_task
+        except asyncio.CancelledError:
+            log("Bot task cancelled")
+
+# FastAPI ایپ کو lifespan کے ساتھ اپ ڈیٹ کرو
+app = FastAPI(lifespan=lifespan)
+
+if __name__ == "__main__":
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
     except Exception as e:
         log(f"Error in main application: {e}", level='ERROR')
         exit(1)
