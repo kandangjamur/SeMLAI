@@ -21,6 +21,11 @@ async def run_engine():
         symbols = [s for s in markets.keys() if s.endswith("/USDT")]
 
         for symbol in symbols:
+            # Log memory and CPU before analysis
+            memory_before = psutil.Process().memory_info().rss / 1024 / 1024
+            cpu_percent = psutil.cpu_percent(interval=0.1)
+            log(f"[{symbol}] Before analysis - Memory: {memory_before:.2f} MB, CPU: {cpu_percent:.1f}%")
+
             log(f"Analyzing {symbol}...")
             ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=100)
             df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
@@ -50,9 +55,11 @@ async def run_engine():
             else:
                 log(f"⚠️ {symbol} - No valid signal", level='INFO')
 
-            # Memory usage
-            memory = psutil.Process().memory_info().rss / 1024 / 1024
-            log(f"Memory usage: {memory:.2f} MB")
+            # Log memory and CPU after analysis
+            memory_after = psutil.Process().memory_info().rss / 1024 / 1024
+            cpu_percent_after = psutil.cpu_percent(interval=0.1)
+            memory_diff = memory_after - memory_before
+            log(f"[{symbol}] After analysis - Memory: {memory_after:.2f} MB (Change: {memory_diff:.2f} MB), CPU: {cpu_percent_after:.1f}%")
     except ccxt.NetworkError as e:
         log(f"Network error: {e}, retrying in 10 seconds...", level='ERROR')
         await asyncio.sleep(10)
