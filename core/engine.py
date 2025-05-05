@@ -18,10 +18,11 @@ async def run_engine():
     exchange = ccxt.binance({"enableRateLimit": True})
     try:
         markets = await exchange.load_markets()
-        symbols = [s for s in markets.keys() if s.endswith("/USDT")]
+        # Limit symbols to reduce memory usage
+        priority_symbols = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "ADA/USDT", "XRP/USDT"]
+        symbols = [s for s in markets.keys() if s in priority_symbols]
 
         for symbol in symbols:
-            # Log memory and CPU before analysis
             memory_before = psutil.Process().memory_info().rss / 1024 / 1024
             cpu_percent = psutil.cpu_percent(interval=0.1)
             log(f"[{symbol}] Before analysis - Memory: {memory_before:.2f} MB, CPU: {cpu_percent:.1f}%")
@@ -56,13 +57,11 @@ async def run_engine():
                 except Exception as e:
                     log(f"[{symbol}] Error sending Telegram message: {e}", level='ERROR')
 
-                # Log to CSV
                 signal_df = pd.DataFrame([signal])
                 signal_df.to_csv("logs/signals_log.csv", mode="a", header=not os.path.exists("logs/signals_log.csv"), index=False)
             else:
                 log(f"⚠️ {symbol} - No valid signal", level='INFO')
 
-            # Log memory and CPU after analysis
             memory_after = psutil.Process().memory_info().rss / 1024 / 1024
             cpu_percent_after = psutil.cpu_percent(interval=0.1)
             memory_diff = memory_after - memory_before
