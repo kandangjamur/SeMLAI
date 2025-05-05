@@ -10,16 +10,20 @@ import os
 import psutil
 from dotenv import load_dotenv
 from time import time
+import cachetools
 
-# FastAPI ایپ
+# FastAPI app
 app = FastAPI()
 
-# کنفیڈنس اور TP1 کی حد
-CONFIDENCE_THRESHOLD = 60
-TP1_POSSIBILITY_THRESHOLD = 0.8
+# Thresholds
+CONFIDENCE_THRESHOLD = 80
+TP1_POSSIBILITY_THRESHOLD = 75
 SCALPING_CONFIDENCE_THRESHOLD = 85
 
-# ہیلتھ چیک اینڈ پوائنٹ
+# Cache for API calls
+symbol_cache = cachetools.TTLCache(maxsize=100, ttl=300)  # 5-minute cache
+
+# Health check endpoints
 @app.get("/")
 async def root():
     log("Root endpoint accessed")
@@ -30,20 +34,23 @@ async def health():
     log("Health check endpoint accessed")
     return {"status": "healthy", "message": "Bot is operational."}
 
-# میموری استعمال لاگ کرنے کا فنکشن
 def log_memory_usage():
     process = psutil.Process()
     mem_info = process.memory_info()
-    mem_mb = mem_info.rss / (1024 * 1024)  # MB میں
+    mem_mb = mem_info.rss / (1024 * 1024)
     log(f"Memory usage: {mem_mb:.2f} MB")
     return mem_mb
 
-# بائننس سے فعال USDT پیئرز لینے کا فنکشن
 async def get_valid_symbols(exchange):
+    if "valid_symbols" in symbol_cache:
+        log("Using cached symbols")
+        return symbol_cache["valid_symbols"]
+    
     log("Fetching USDT symbols...")
     try:
         markets = await exchange.load_markets()
         usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT') and markets[s].get('active', False)]
+        symbol_cache["valid_symbols"] = usdt_symbols
         log(f"Found {len(usdt_symbols)} active USDT pairs")
         return usdt_symbols
     except Exception as e:
@@ -52,7 +59,6 @@ async def get_valid_symbols(exchange):
     finally:
         await exchange.close()
 
-# سگنلز سکین کرنے کا فنکشن
 async def scan_symbols():
     log("Starting symbol scan...")
     exchange = ccxt.binance({
@@ -69,12 +75,8 @@ async def scan_symbols():
 
     try:
         log("Testing Binance API connection...")
-        try:
-            ticker = await exchange.fetch_ticker('BTC/USDT')
-            log(f"Binance API connection successful. BTC/USDT ticker: {ticker['last']}")
-        except Exception as e:
-            log(f"Binance API connection failed: {e}", level='ERROR')
-            return
+        ticker = await exchange.fetch_ticker('BTC/USDT')
+        log(f"Binance API connection successful. BTC/USDT ticker: {ticker['last']}")
 
         symbols = await get_valid_symbols(exchange)
         if not symbols:
@@ -82,9 +84,9 @@ async def scan_symbols():
             return
 
         log(f"Scanning {len(symbols)} symbols...")
-        for symbol in symbols:
+        for symbol in symbols[:50]:  # Limit to 50 symbols to save memory
             try:
-                log_memory_usage()  # ہر سمبل سے پہلے میموری چیک
+                log_memory_usage()
                 log(f"Analyzing {symbol}...")
                 result = await analyze_symbol(exchange, symbol)
                 if not result or not result.get('signal'):
@@ -123,7 +125,10 @@ async def scan_symbols():
                     "trade_type": trade_type,
                     "timestamp": int(time() * 1000),
                     "tp2_possibility": result.get("tp2_possibility", 0),
-                    "tp3_possibility": result.get("tp3_possibility", 0)
+                    "tp3_possibility": result.get("tp3_possibility", 0),
+                    "indicators_used": result.get("indicators_used", ""),
+                    "backtest_result": result.get("backtest_result", 0),
+                    "volume": result.get("volume", 0)
                 }
 
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
@@ -131,12 +136,11 @@ async def scan_symbols():
                     await send_telegram_signal(symbol, signal_data)
                     log_signal_to_csv(signal_data)
                     log("✅ Signal SENT ✅")
-                elif confidence < CONFIDENCE_THRESHOLD:
-                    log("⚠️ Skipped - Low confidence")
-                elif tp1_possibility < TP1_POSSIBILITY_THRESHOLD:
-                    log("⚠️ Skipped - Low TP1 possibility")
+                else:
+                    log(f"⚠️ {symbol} - Skipped: Low confidence or TP1 possibility")
 
                 log("---")
+                await asyncio.sleep(0.5)  # Prevent overloading Koyeb
 
             except Exception as e:
                 log(f"Error processing {symbol}: {e}", level='ERROR')
@@ -146,15 +150,13 @@ async def scan_symbols():
     finally:
         await exchange.close()
 
-# بوٹ کو مسلسل چلانے کا فنکشن
 async def run_bot():
     log("Starting bot...")
     while True:
         try:
             mem_usage = log_memory_usage()
-            if mem_usage > 300:
-                log("Memory usage exceeds 300 MB, optimizing...", level='ERROR')
-                # غیر ضروری ڈیٹا صاف کرو
+            if mem_usage > 200:  # Stricter memory limit for Koyeb
+                log("Memory usage exceeds 200 MB, optimizing...", level='ERROR')
                 import gc
                 gc.collect()
             log("Initiating scan_symbols...")
@@ -164,7 +166,6 @@ async def run_bot():
         log("Waiting 60 seconds before next scan...")
         await asyncio.sleep(60)
 
-# FastAPI lifespan ایونٹ ہینڈلر
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log("Main application starting...")
@@ -172,21 +173,18 @@ async def lifespan(app: FastAPI):
         log("BINANCE_API_KEY or BINANCE_API_SECRET not set in environment!", level='ERROR')
         raise Exception("Missing API keys")
 
-    # run_bot کو بیک گراؤنڈ میں شروع کرو
     bot_task = asyncio.create_task(run_bot())
     log("Bot task started")
 
     try:
         yield
     finally:
-        # ایپ بند ہونے پر bot_task کو صاف کرو
         bot_task.cancel()
         try:
             await bot_task
         except asyncio.CancelledError:
             log("Bot task cancelled")
 
-# FastAPI ایپ کو lifespan کے ساتھ اپ ڈیٹ کرو
 app = FastAPI(lifespan=lifespan)
 
 if __name__ == "__main__":
