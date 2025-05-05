@@ -18,11 +18,11 @@ async def run_engine():
     exchange = ccxt.binance({"enableRateLimit": True})
     try:
         markets = await exchange.load_markets()
-        # Limit symbols to reduce memory usage
-        priority_symbols = ["BTC/USDT", "ETH/USDT", "BNB/USDT", "ADA/USDT", "XRP/USDT"]
-        symbols = [s for s in markets.keys() if s in priority_symbols]
+        symbols = [s for s in markets.keys() if s.endswith("/USDT")]
+        log(f"Loaded {len(symbols)} USDT pairs for scanning")
 
         for symbol in symbols:
+            # Log memory and CPU before analysis
             memory_before = psutil.Process().memory_info().rss / 1024 / 1024
             cpu_percent = psutil.cpu_percent(interval=0.1)
             log(f"[{symbol}] Before analysis - Memory: {memory_before:.2f} MB, CPU: {cpu_percent:.1f}%")
@@ -36,32 +36,39 @@ async def run_engine():
                 continue
 
             if not detect_whale_activity(symbol, df):
+                log(f"[{symbol}] No whale activity detected", level='INFO')
                 continue
 
-            signal = await analyze_symbol(exchange, symbol)
-            if signal and signal["confidence"] >= 80 and signal["tp1_chance"] >= 75:
-                message = (
-                    f"🚨 {signal['symbol']} Signal\n"
-                    f"Timeframe: {signal['timeframe']}\n"
-                    f"Direction: {signal['direction']}\n"
-                    f"Price: {signal['price']:.4f}\n"
-                    f"Confidence: {signal['confidence']}%\n"
-                    f"TP1: {signal['tp1']:.4f} ({signal['tp1_chance']}%)\n"
-                    f"TP2: {signal['tp2']:.4f}\n"
-                    f"TP3: {signal['tp3']:.4f}\n"
-                    f"SL: {signal['sl']:.4f}"
-                )
-                try:
-                    await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-                    log(f"[{symbol}] Signal sent: {signal['direction']}, Confidence: {signal['confidence']}%")
-                except Exception as e:
-                    log(f"[{symbol}] Error sending Telegram message: {e}", level='ERROR')
+            try:
+                signal = await analyze_symbol(exchange, symbol)
+                if signal and signal["confidence"] >= 80 and signal["tp1_chance"] >= 75:
+                    message = (
+                        f"🚨 {signal['symbol']} Signal\n"
+                        f"Timeframe: {signal['timeframe']}\n"
+                        f"Direction: {signal['direction']}\n"
+                        f"Price: {signal['price']:.4f}\n"
+                        f"Confidence: {signal['confidence']}%\n"
+                        f"TP1: {signal['tp1']:.4f} ({signal['tp1_chance']}%)\n"
+                        f"TP2: {signal['tp2']:.4f}\n"
+                        f"TP3: {signal['tp3']:.4f}\n"
+                        f"SL: {signal['sl']:.4f}"
+                    )
+                    try:
+                        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+                        log(f"[{symbol}] Signal sent: {signal['direction']}, Confidence: {signal['confidence']}%")
+                    except Exception as e:
+                        log(f"[{symbol}] Error sending Telegram message: {e}", level='ERROR')
 
-                signal_df = pd.DataFrame([signal])
-                signal_df.to_csv("logs/signals_log.csv", mode="a", header=not os.path.exists("logs/signals_log.csv"), index=False)
-            else:
-                log(f"⚠️ {symbol} - No valid signal", level='INFO')
+                    # Log to CSV
+                    signal_df = pd.DataFrame([signal])
+                    signal_df.to_csv("logs/signals_log.csv", mode="a", header=not os.path.exists("logs/signals_log.csv"), index=False)
+                else:
+                    log(f"⚠️ {symbol} - No valid signal", level='INFO')
+            except Exception as e:
+                log(f"[{symbol}] Error analyzing symbol: {e}", level='ERROR')
+                continue
 
+            # Log memory and CPU after analysis
             memory_after = psutil.Process().memory_info().rss / 1024 / 1024
             cpu_percent_after = psutil.cpu_percent(interval=0.1)
             memory_diff = memory_after - memory_before
@@ -74,5 +81,6 @@ async def run_engine():
     finally:
         try:
             await exchange.close()
+            log("Exchange connection closed")
         except Exception as e:
             log(f"Error closing exchange: {e}", level='ERROR')
