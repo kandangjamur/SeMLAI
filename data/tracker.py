@@ -1,89 +1,69 @@
-import pandas as pd
-import os
-import ccxt.async_support as ccxt
+import polars as pl
 from utils.logger import log
-import json
-from datetime import datetime
+import ccxt.async_support as ccxt
+import asyncio
 
-async def update_signal_status():
-    filename = "logs/signals_log.csv"
-    sent_signals_file = "logs/sent_signals.json"
-    if not os.path.exists(filename):
-        log("⚠️ No signals log file found")
-        return
-
-    df = pd.read_csv(filename)
-    if df.empty:
-        log("⚠️ Signals log is empty")
-        return
-
-    exchange = ccxt.binance({
-        'enableRateLimit': True,
-        'options': {'defaultType': 'future'}
-    })
-    await exchange.load_markets()
-
-    sent_signals = load_sent_signals()
-
-    for index, row in df.iterrows():
-        if row['status'] != 'pending':
-            continue
-
-        try:
-            ticker = await exchange.fetch_ticker(row['symbol'])
-            current_price = ticker['last']
-            timestamp = pd.to_datetime(row['timestamp']).timestamp()
-            time_elapsed = datetime.utcnow().timestamp() - timestamp
-
-            if row['direction'] == 'LONG':
-                if current_price >= row['tp3']:
-                    df.at[index, 'status'] = 'TP3_hit'
-                elif current_price >= row['tp2']:
-                    df.at[index, 'status'] = 'TP2_hit'
-                elif current_price >= row['tp1']:
-                    df.at[index, 'status'] = 'TP1_hit'
-                elif current_price <= row['sl']:
-                    df.at[index, 'status'] = 'SL_hit'
-                elif time_elapsed >= 5 * 3600:
-                    df.at[index, 'status'] = 'timeout'
-            elif row['direction'] == 'SHORT':
-                if current_price <= row['tp3']:
-                    df.at[index, 'status'] = 'TP3_hit'
-                elif current_price <= row['tp2']:
-                    df.at[index, 'status'] = 'TP2_hit'
-                elif current_price <= row['tp1']:
-                    df.at[index, 'status'] = 'TP1_hit'
-                elif current_price >= row['sl']:
-                    df.at[index, 'status'] = 'SL_hit'
-                elif time_elapsed >= 5 * 3600:
-                    df.at[index, 'status'] = 'timeout'
-
-            if df.at[index, 'status'] in ['TP1_hit', 'TP2_hit', 'TP3_hit', 'SL_hit', 'timeout']:
-                symbol = row['symbol']
-                if symbol in sent_signals and sent_signals[symbol]["date"] == datetime.utcnow().date().isoformat():
-                    del sent_signals[symbol]
-                    save_sent_signals(sent_signals)
-                    log(f"📝 Removed {symbol} from sent_signals due to trade closure: {df.at[index, 'status']}")
-
-        except Exception as e:
-            log(f"❌ Error updating status for {row['symbol']}: {e}")
-
-    df.to_csv(filename, index=False)
-    log("📝 Signal statuses updated")
-
-def load_sent_signals():
+async def track_trade(symbol, signal):
     try:
-        with open("logs/sent_signals.json", "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
-    except Exception as e:
-        log(f"❌ Error loading sent_signals: {e}")
-        return {}
+        exchange = ccxt.binance({"enableRateLimit": True})
+        direction = signal["direction"]
+        price = signal["price"]
+        tp1 = signal["tp1"]
+        tp2 = signal["tp2"]
+        tp3 = signal["tp3"]
+        sl = signal["sl"]
 
-def save_sent_signals(sent_signals):
-    try:
-        with open("logs/sent_signals.json", "w") as f:
-            json.dump(sent_signals, f)
+        status = "pending"
+        for _ in range(720):  # Check for ~3 hours (720 * 15s)
+            ticker = await exchange.fetch_ticker(symbol)
+            current_price = ticker["last"]
+
+            if direction == "LONG":
+                if current_price >= tp3:
+                    status = "tp3"
+                    break
+                elif current_price >= tp2:
+                    status = "tp2"
+                elif current_price >= tp1:
+                    status = "tp1"
+                elif current_price <= sl:
+                    status = "sl"
+                    break
+            else:  # SHORT
+                if current_price <= tp3:
+                    status = "tp3"
+                    break
+                elif current_price <= tp2:
+                    status = "tp2"
+                elif current_price <= tp1:
+                    status = "tp1"
+                elif current_price >= sl:
+                    status = "sl"
+                    break
+
+            await asyncio.sleep(15)  # Check every 15 seconds
+
+        log(f"[{symbol}] Trade status: {status}")
+        update_signal_log(symbol, signal, status)
+        await exchange.close()
+        return status
     except Exception as e:
-        log(f"❌ Error saving sent_signals: {e}")
+        log(f"[{symbol}] Error tracking trade: {e}", level='ERROR')
+        await exchange.close()
+        return "error"
+
+def update_signal_log(symbol, signal, status):
+    try:
+        csv_path = "logs/signals_log.csv"
+        df = pl.read_csv(csv_path)
+        df = df.with_columns(pl.col("status").cast(pl.Utf8))
+        df = df.with_columns(
+            pl.when((pl.col("symbol") == symbol) & (pl.col("timestamp") == signal["timestamp"]))
+            .then(status)
+            .otherwise(pl.col("status"))
+            .alias("status")
+        )
+        df.write_csv(csv_path)
+        log(f"[{symbol}] Signal log updated with status: {status}")
+    except Exception as e:
+        log(f"[{symbol}] Error updating signal log: {e}", level='ERROR')
