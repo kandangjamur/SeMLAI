@@ -13,6 +13,9 @@ templates = Jinja2Templates(directory="dashboard/templates")
 
 @app.get("/health")
 async def health_check():
+    memory = psutil.Process().memory_info().rss / 1024 / 1024
+    cpu_percent = psutil.cpu_percent(interval=0.1)
+    log(f"[Health Check] Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
     return {"status": "healthy"}
 
 @app.get("/")
@@ -22,8 +25,9 @@ async def dashboard(request: Request):
         cpu_percent = psutil.cpu_percent(interval=0.1)
         log(f"[Main Dashboard] Loading - Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
 
-        if not os.path.exists("dashboard/templates/dashboard.html"):
-            log("Dashboard template 'dashboard.html' not found", level='ERROR')
+        template_path = "dashboard/templates/dashboard.html"
+        if not os.path.exists(template_path):
+            log(f"Dashboard template '{template_path}' not found", level='ERROR')
             return {"error": "Dashboard template not found"}
 
         return templates.TemplateResponse("dashboard.html", {"request": request})
@@ -34,22 +38,27 @@ async def dashboard(request: Request):
 async def main():
     memory = psutil.Process().memory_info().rss / 1024 / 1024
     cpu_percent = psutil.cpu_percent(interval=0.1)
-    log(f"Initial - Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
+    log(f"[Main] Initial - Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
 
     while True:
         try:
-            log("Starting engine loop...")
+            log("[Main] Starting engine loop...")
             await run_engine()
-            log("Engine loop completed, waiting 60 seconds...")
+            log("[Main] Engine loop completed successfully, waiting 60 seconds...")
             await asyncio.sleep(60)
+        except ccxt.NetworkError as e:
+            log(f"[Main] Network error in main loop: {e}, retrying in 10 seconds...", level='ERROR')
+            await asyncio.sleep(10)
         except Exception as e:
-            log(f"Critical error in main loop: {e}", level='ERROR')
+            log(f"[Main] Critical error in main loop: {e}", level='ERROR')
             await asyncio.sleep(10)
 
 if __name__ == "__main__":
     try:
+        log("[Main] Starting application...")
         loop = asyncio.get_event_loop()
         loop.create_task(main())
         uvicorn.run(app, host="0.0.0.0", port=8000, workers=1, timeout_keep_alive=240)
     except Exception as e:
-        log(f"Error starting application: {e}", level='ERROR')
+        log(f"[Main] Error starting application: {e}", level='ERROR')
+        raise
