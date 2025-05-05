@@ -12,11 +12,19 @@ from dotenv import load_dotenv
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-bot = Bot(token=TELEGRAM_BOT_TOKEN)
 
 async def run_engine():
-    exchange = ccxt.binance({"enableRateLimit": True})
+    log("Starting engine...")
     try:
+        # Initialize Telegram bot
+        log("Initializing Telegram bot...")
+        bot = Bot(token=TELEGRAM_BOT_TOKEN)
+        await bot.get_me()  # Test bot connection
+        log("Telegram bot initialized successfully")
+
+        # Initialize exchange
+        log("Initializing Binance exchange...")
+        exchange = ccxt.binance({"enableRateLimit": True})
         markets = await exchange.load_markets()
         symbols = [s for s in markets.keys() if s.endswith("/USDT")]
         log(f"Loaded {len(symbols)} USDT pairs for scanning")
@@ -77,7 +85,7 @@ async def run_engine():
         log(f"Network error: {e}, retrying in 10 seconds...", level='ERROR')
         await asyncio.sleep(10)
     except Exception as e:
-        log(f"Error in engine: {e}", level='ERROR')
+        log(f"Critical error in engine: {e}", level='ERROR')
     finally:
         try:
             await exchange.close()
