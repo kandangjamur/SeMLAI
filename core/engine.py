@@ -12,32 +12,27 @@ from dotenv import load_dotenv
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+BINANCE_API_KEY = os.getenv("BINANCE_API_KEY")
+BINANCE_API_SECRET = os.getenv("BINANCE_API_SECRET")
 
 async def run_engine():
-    log("Starting engine...")
-    try:
-        # Initialize Telegram bot
-        log("Initializing Telegram bot...")
-        bot = Bot(token=TELEGRAM_BOT_TOKEN)
-        try:
-            await bot.get_me()
-            log("Telegram bot initialized successfully")
-        except Exception as e:
-            log(f"Failed to initialize Telegram bot: {e}", level='ERROR')
-            return
+    if not all([BINANCE_API_KEY, BINANCE_API_SECRET, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
+        log("Missing environment variables (BINANCE_API_KEY, BINANCE_API_SECRET, TELEGRAM_BOT_TOKEN, or TELEGRAM_CHAT_ID)", level='ERROR')
+        return
 
-        # Initialize exchange
-        log("Initializing Binance exchange...")
-        exchange = ccxt.binance({"enableRateLimit": True})
-        try:
-            markets = await exchange.load_markets()
-            symbols = [s for s in markets.keys() if s.endswith("/USDT")]
-            log(f"Loaded {len(symbols)} USDT pairs for scanning")
-        except Exception as e:
-            log(f"Failed to load markets: {e}", level='ERROR')
-            return
+    bot = Bot(token=TELEGRAM_BOT_TOKEN)
+    exchange = ccxt.binance({
+        "enableRateLimit": True,
+        "apiKey": BINANCE_API_KEY,
+        "secret": BINANCE_API_SECRET
+    })
+
+    try:
+        markets = await exchange.load_markets()
+        symbols = [s for s in markets.keys() if s.endswith("/USDT")]
 
         for symbol in symbols:
+            # Log memory and CPU before analysis
             memory_before = psutil.Process().memory_info().rss / 1024 / 1024
             cpu_percent = psutil.cpu_percent(interval=0.1)
             log(f"[{symbol}] Before analysis - Memory: {memory_before:.2f} MB, CPU: {cpu_percent:.1f}%")
@@ -51,46 +46,45 @@ async def run_engine():
                 continue
 
             if not detect_whale_activity(symbol, df):
-                log(f"[{symbol}] No whale activity detected", level='INFO')
                 continue
 
-            try:
-                signal = await analyze_symbol(exchange, symbol)
-                if signal and signal["confidence"] >= 80 and signal["tp1_chance"] >= 75:
-                    message = (
-                        f"🚨 {signal['symbol']} Signal\n"
-                        f"Timeframe: {signal['timeframe']}\n"
-                        f"Direction: {signal['direction']}\n"
-                        f"Price: {signal['price']:.4f}\n"
-                        f"Confidence: {signal['confidence']}%\n"
-                        f"TP1: {signal['tp1']:.4f} ({signal['tp1_chance']}%)\n"
-                        f"TP2: {signal['tp2']:.4f}\n"
-                        f"TP3: {signal['tp3']:.4f}\n"
-                        f"SL: {signal['sl']:.4f}"
-                    )
-                    try:
-                        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-                        log(f"[{symbol}] Signal sent: {signal['direction']}, Confidence: {signal['confidence']}%")
-                    except Exception as e:
-                        log(f"[{symbol}] Error sending Telegram message: {e}", level='ERROR')
+            signal = await analyze_symbol(exchange, symbol)
+            if signal and signal["confidence"] >= 80 and signal["tp1_chance"] >= 75:
+                message = (
+                    f"🚨 {signal['symbol']} Signal\n"
+                    f"Timeframe: {signal['timeframe']}\n"
+                    f"Direction: {signal['direction']}\n"
+                    f"Price: {signal['price']:.4f}\n"
+                    f"Confidence: {signal['confidence']}%\n"
+                    f"TP1: {signal['tp1']:.4f} ({signal['tp1_chance']}%)\n"
+                    f"TP2: {signal['tp2']:.4f}\n"
+                    f"TP3: {signal['tp3']:.4f}\n"
+                    f"SL: {signal['sl']:.4f}"
+                )
+                try:
+                    await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+                    log(f"[{symbol}] Signal sent: {signal['direction']}, Confidence: {signal['confidence']}%")
+                except Exception as e:
+                    log(f"[{symbol}] Error sending Telegram message: {e}", level='ERROR')
 
-                    signal_df = pd.DataFrame([signal])
-                    signal_df.to_csv("logs/signals_log.csv", mode="a", header=not os.path.exists("logs/signals_log.csv"), index=False)
-                else:
-                    log(f"⚠️ {symbol} - No valid signal", level='INFO')
-            except Exception as e:
-                log(f"[{symbol}] Error analyzing symbol: {e}", level='ERROR')
-                continue
+                # Log to CSV
+                signal_df = pd.DataFrame([signal])
+                signal_df.to_csv("logs/signals_log.csv", mode="a", header=not os.path.exists("logs/signals_log.csv"), index=False)
+            else:
+                log(f"⚠️ {symbol} - No valid signal", level='INFO')
 
+            # Log memory and CPU after analysis
             memory_after = psutil.Process().memory_info().rss / 1024 / 1024
             cpu_percent_after = psutil.cpu_percent(interval=0.1)
             memory_diff = memory_after - memory_before
             log(f"[{symbol}] After analysis - Memory: {memory_after:.2f} MB (Change: {memory_diff:.2f} MB), CPU: {cpu_percent_after:.1f}%")
+    except ccxt.NetworkError as e:
+        log(f"Network error: {e}, retrying in 10 seconds...", level='ERROR')
+        await asyncio.sleep(10)
     except Exception as e:
-        log(f"Critical error in engine: {e}", level='ERROR')
+        log(f"Error in engine: {e}", level='ERROR')
     finally:
         try:
             await exchange.close()
-            log("Exchange connection closed")
         except Exception as e:
             log(f"Error closing exchange: {e}", level='ERROR')
