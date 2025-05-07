@@ -15,10 +15,12 @@ async def dashboard(request: Request):
         cpu_percent = psutil.cpu_percent(interval=0.1)
         log(f"[Dashboard] Loading - Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
 
-        if not os.path.exists("dashboard/templates/dashboard.html"):
-            log("Dashboard template 'dashboard.html' not found", level='ERROR')
+        template_path = "dashboard/templates/dashboard.html"
+        if not os.path.exists(template_path):
+            log(f"[Dashboard] Template not found at {template_path}", level='ERROR')
             return {"error": "Dashboard template not found"}
 
+        log(f"[Dashboard] Rendering template: {template_path}")
         return templates.TemplateResponse("dashboard.html", {"request": request})
     except Exception as e:
         log(f"[Dashboard] Error loading dashboard: {e}", level='ERROR')
