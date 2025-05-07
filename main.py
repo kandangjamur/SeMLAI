@@ -1,58 +1,69 @@
-import asyncio
+import os
+import sys
+from fastapi import FastAPI, Request
+from fastapi.templating import Jinja2Templates
 import uvicorn
-from fastapi import FastAPI
-from core.analysis import analyze_symbol
-from core.indicators import load_price_data, get_valid_symbols
-from utils.logger import setup_logger
-from telebot.sender import send_telegram_message
+import psutil
 
-logger = setup_logger("scanner")
+# Custom logger (assuming utils/logger.py exists)
+def log(message, level='INFO'):
+    print(f"{level}: {message}")
+
+log("[Main] File loaded: main.py")  # Confirm file loading
+
 app = FastAPI()
+templates = Jinja2Templates(directory="dashboard/templates")
 
-CONFIDENCE_THRESHOLD = 50
+@app.get("/health")
+async def health_check():
+    log("[Health Check] Accessed /health endpoint")
+    return {"status": "healthy"}
 
 @app.get("/")
-async def root():
-    return {"message": "Bot is running."}
+async def dashboard(request: Request):
+    try:
+        log("[Main Dashboard] Loading dashboard")
+        memory = psutil.Process().memory_info().rss / 1024 / 1024
+        cpu_percent = psutil.cpu_percent(interval=0.1)
+        log(f"[Main Dashboard] Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
 
-async def scan_symbols():
-    symbols = await get_valid_symbols()
-    for symbol in symbols:
-        try:
-            ohlcv = await load_price_data(symbol)
-            if not ohlcv:
-                continue
+        template_path = "dashboard/templates/dashboard.html"
+        log(f"[Main Dashboard] Checking template at {template_path}")
+        if not os.path.exists(template_path):
+            log(f"[Main Dashboard] Template not found at {template_path}", level='ERROR')
+            return {"error": "Dashboard template not found"}
 
-            result = await analyze_symbol(symbol, ohlcv)
-            if not result:
-                continue
-
-            confidence = result["confidence"]
-            tp1_possibility = result["tp1_possibility"]
-            direction = result["direction"]
-
-            print(f"🔍 {symbol} | Confidence: {confidence:.2f} | Direction: {direction} | TP1 Chance: {tp1_possibility:.2f}")
-
-            if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= 0.5:
-                message = f"🚀 {symbol}\nDirection: {direction}\nConfidence: {confidence:.2f}\nTP1 Possibility: {tp1_possibility:.2f}"
-                await send_telegram_message(message)
-                print("✅ Signal SENT ✅")
-            elif confidence < CONFIDENCE_THRESHOLD:
-                print("⚠️ Skipped - Low confidence")
-            elif tp1_possibility < 0.5:
-                print("⚠️ Skipped - Low TP1 possibility")
-
-            print("---")
-
-        except Exception as e:
-            logger.error(f"Error processing {symbol}: {e}")
-
-async def run_bot():
-    while True:
-        await scan_symbols()
-        await asyncio.sleep(60)
+        log(f"[Main Dashboard] Rendering template: {template_path}")
+        return templates.TemplateResponse("dashboard.html", {"request": request})
+    except Exception as e:
+        log(f"[Main Dashboard] Error in dashboard: {str(e)}", level='ERROR')
+        return {"error": f"Dashboard error: {str(e)}"}
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(run_bot())
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        log("[Main] Entering __main__ block")
+        memory = psutil.Process().memory_info().rss / 1024 / 1024
+        log(f"[Main] Application startup - Memory: {memory:.2f} MB")
+
+        log("[Main] Checking environment variables")
+        required_vars = ["BINANCE_API_KEY", "BINANCE_API_SECRET", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]
+        for var in required_vars:
+            value = os.getenv(var)
+            log(f"[Main] Env var {var}: {'Set' if value else 'Missing'}")
+            if not value:
+                log(f"[Main] Missing environment variable: {var}", level='ERROR')
+                raise ValueError(f"Missing environment variable: {var}")
+
+        log("[Main] Checking required files")
+        template_path = "dashboard/templates/dashboard.html"
+        log(f"[Main] Checking file: {template_path}")
+        if not os.path.exists(template_path):
+            log(f"[Main] Template file not found at {template_path}", level='ERROR')
+            raise FileNotFoundError(f"Template file not found: {template_path}")
+
+        log("[Main] Starting uvicorn server")
+        uvicorn.run(app, host="0.0.0.0", port=8000, workers=1, timeout_keep_alive=240)
+        log("[Main] Uvicorn server started")
+    except Exception as e:
+        log(f"[Main] Error in __main__ block: {str(e)}", level='ERROR')
+        sys.exit(1)
