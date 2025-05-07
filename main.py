@@ -7,6 +7,7 @@ from utils.logger import log
 import psutil
 import uvicorn
 import os
+import sys
 
 log("[Main] File loaded: main.py")  # Confirm file loading
 
@@ -56,24 +57,28 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        log("[Main] Starting application")
+        log("[Main] Entering __main__ block")
         memory = psutil.Process().memory_info().rss / 1024 / 1024
         log(f"[Main] Application startup - Memory: {memory:.2f} MB")
 
         log("[Main] Checking environment variables")
         required_vars = ["BINANCE_API_KEY", "BINANCE_API_SECRET", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]
         for var in required_vars:
-            if not os.getenv(var):
+            value = os.getenv(var)
+            log(f"[Main] Env var {var}: {'Set' if value else 'Missing'}")
+            if not value:
                 log(f"[Main] Missing environment variable: {var}", level='ERROR')
                 raise ValueError(f"Missing environment variable: {var}")
 
         log("[Main] Checking required files")
         model_path = "models/rf_model.joblib"
+        log(f"[Main] Checking file: {model_path}")
         if not os.path.exists(model_path):
             log(f"[Main] Model file not found at {model_path}", level='ERROR')
             raise FileNotFoundError(f"Model file not found: {model_path}")
 
         template_path = "dashboard/templates/dashboard.html"
+        log(f"[Main] Checking file: {template_path}")
         if not os.path.exists(template_path):
             log(f"[Main] Template file not found at {template_path}", level='ERROR')
             raise FileNotFoundError(f"Template file not found: {template_path}")
@@ -90,5 +95,5 @@ if __name__ == "__main__":
         uvicorn.run(app, host="0.0.0.0", port=8000, workers=1, timeout_keep_alive=240)
         log("[Main] Uvicorn server started")
     except Exception as e:
-        log(f"[Main] Error starting application: {str(e)}", level='ERROR')
-        raise
+        log(f"[Main] Error in __main__ block: {str(e)}", level='ERROR')
+        sys.exit(1)
