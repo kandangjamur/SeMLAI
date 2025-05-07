@@ -13,12 +13,12 @@ templates = Jinja2Templates(directory="dashboard/templates")
 
 @app.get("/health")
 async def health_check():
+    log("[Health Check] Accessed /health endpoint")
     return {"status": "healthy"}
 
 @app.get("/")
 async def dashboard(request: Request):
     try:
-        # Log memory and CPU usage
         memory = psutil.Process().memory_info().rss / 1024 / 1024
         cpu_percent = psutil.cpu_percent(interval=0.1)
         log(f"[Main Dashboard] Loading - Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
@@ -31,29 +31,29 @@ async def dashboard(request: Request):
         log(f"[Main Dashboard] Rendering template: {template_path}")
         return templates.TemplateResponse("dashboard.html", {"request": request})
     except Exception as e:
-        log(f"[Main Dashboard] Error loading dashboard: {e}", level='ERROR')
+        log(f"[Main Dashboard] Error loading dashboard: {str(e)}", level='ERROR')
         return {"error": str(e)}
 
 async def main():
-    # Log initial memory and CPU usage
     memory = psutil.Process().memory_info().rss / 1024 / 1024
     cpu_percent = psutil.cpu_percent(interval=0.1)
-    log(f"Initial - Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
+    log(f"[Main] Initial - Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
 
     while True:
         try:
+            log("[Main] Starting run_engine...")
             await run_engine()
-            log("Waiting 60 seconds before next scan...")
+            log("[Main] run_engine completed, waiting 60 seconds...")
             await asyncio.sleep(60)
         except Exception as e:
-            log(f"Error in main loop: {e}", level='ERROR')
+            log(f"[Main] Error in main loop: {str(e)}", level='ERROR')
             await asyncio.sleep(10)
 
 if __name__ == "__main__":
-    # Run engine as a background task
     try:
+        log("[Main] Starting application...")
         loop = asyncio.get_event_loop()
         loop.create_task(main())
         uvicorn.run(app, host="0.0.0.0", port=8000, workers=1, timeout_keep_alive=240)
     except Exception as e:
-        log(f"Error starting application: {e}", level='ERROR')
+        log(f"[Main] Error starting application: {str(e)}", level='ERROR')
