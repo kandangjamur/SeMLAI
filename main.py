@@ -8,6 +8,8 @@ import psutil
 import uvicorn
 import os
 
+log("[Main] File loaded: main.py")  # Confirm file loading
+
 app = FastAPI()
 templates = Jinja2Templates(directory="dashboard/templates")
 
@@ -19,9 +21,10 @@ async def health_check():
 @app.get("/")
 async def dashboard(request: Request):
     try:
+        log("[Main Dashboard] Loading dashboard")
         memory = psutil.Process().memory_info().rss / 1024 / 1024
         cpu_percent = psutil.cpu_percent(interval=0.1)
-        log(f"[Main Dashboard] Loading dashboard - Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
+        log(f"[Main Dashboard] Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
 
         template_path = "dashboard/templates/dashboard.html"
         log(f"[Main Dashboard] Checking template at {template_path}")
@@ -37,9 +40,10 @@ async def dashboard(request: Request):
 
 async def main():
     try:
+        log("[Main] Initializing main loop")
         memory = psutil.Process().memory_info().rss / 1024 / 1024
         cpu_percent = psutil.cpu_percent(interval=0.1)
-        log(f"[Main] Initializing main loop - Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
+        log(f"[Main] Memory: {memory:.2f} MB, CPU: {cpu_percent:.1f}%")
 
         while True:
             log("[Main] Starting run_engine iteration")
@@ -56,6 +60,24 @@ if __name__ == "__main__":
         memory = psutil.Process().memory_info().rss / 1024 / 1024
         log(f"[Main] Application startup - Memory: {memory:.2f} MB")
 
+        log("[Main] Checking environment variables")
+        required_vars = ["BINANCE_API_KEY", "BINANCE_API_SECRET", "TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID"]
+        for var in required_vars:
+            if not os.getenv(var):
+                log(f"[Main] Missing environment variable: {var}", level='ERROR')
+                raise ValueError(f"Missing environment variable: {var}")
+
+        log("[Main] Checking required files")
+        model_path = "models/rf_model.joblib"
+        if not os.path.exists(model_path):
+            log(f"[Main] Model file not found at {model_path}", level='ERROR')
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+
+        template_path = "dashboard/templates/dashboard.html"
+        if not os.path.exists(template_path):
+            log(f"[Main] Template file not found at {template_path}", level='ERROR')
+            raise FileNotFoundError(f"Template file not found: {template_path}")
+
         log("[Main] Creating event loop")
         loop = asyncio.get_event_loop()
         log("[Main] Event loop created")
@@ -69,3 +91,4 @@ if __name__ == "__main__":
         log("[Main] Uvicorn server started")
     except Exception as e:
         log(f"[Main] Error starting application: {str(e)}", level='ERROR')
+        raise
