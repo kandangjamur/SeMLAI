@@ -27,18 +27,18 @@ def calculate_fibonacci_levels(df):
         # Calculate Fibonacci levels
         diff = max_high - min_low
         fib_levels = {
-            '0.0': min_low,
-            '0.236': min_low + 0.236 * diff,
-            '0.382': min_low + 0.382 * diff,
-            '0.5': min_low + 0.5 * diff,
-            '0.618': min_low + 0.618 * diff,
-            '0.786': min_low + 0.786 * diff,
-            '1.0': max_high
+            'level_0_0': min_low,
+            'level_0_236': min_low + 0.236 * diff,
+            'level_0_382': min_low + 0.382 * diff,
+            'level_0_5': min_low + 0.5 * diff,
+            'level_0_618': min_low + 0.618 * diff,
+            'level_0_786': min_low + 0.786 * diff,
+            'level_1_0': max_high
         }
 
         # Add Fibonacci levels to DataFrame
         for level, value in fib_levels.items():
-            df[f'fib_{level}'] = value
+            df[level] = value
 
         if df.isna().any().any() or df.isin([np.inf, -np.inf]).any().any():
             log("NaN or Inf values in Fibonacci levels", level='WARNING')
