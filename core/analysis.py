@@ -7,6 +7,16 @@ from utils.support_resistance import detect_breakout
 from model.predictor import predict_confidence
 from utils.logger import log
 
+async def fetch_ohlcv_safe(exchange, symbol, timeframe, retries=3):
+    for _ in range(retries):
+        try:
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)
+            if ohlcv and len(ohlcv) >= 20:
+                return ohlcv
+        except Exception as e:
+            await asyncio.sleep(0.5)
+    return None
+
 async def analyze_symbol(exchange, symbol):
     try:
         timeframes = ["15m", "1h", "4h", "1d"]
@@ -14,29 +24,31 @@ async def analyze_symbol(exchange, symbol):
         timeframe_directions = {}
 
         for timeframe in timeframes:
-            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)
+            ohlcv = await fetch_ohlcv_safe(exchange, symbol, timeframe)
+            if not ohlcv:
+                log(f"[{symbol}] Failed to fetch OHLCV or insufficient data for {timeframe}", level="ERROR")
+                continue
+
             df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
-            # سخت والیوم چیک
-            if len(df) < 20 or df["volume"].mean() < 50_000:
-                log(f"[{symbol}] Insufficient data or low volume for {timeframe}")
+            if df["volume"].mean() < 50_000 or df["volume"].max() == 0:
+                log(f"[{symbol}] Low or invalid volume in {timeframe}", level="WARNING")
                 continue
 
-            # انڈیکیٹرز کیلکولیٹ کرو
             df = calculate_indicators(df)
-            log(f"[{symbol}] Indicators calculated for {len(df)} rows in {timeframe}")
+            if df.isnull().values.any():
+                log(f"[{symbol}] NaN values found in indicators for {timeframe}", level="WARNING")
+                continue
 
-            # تازہ ترین ڈیٹا
             latest_idx = df.index[-1]
             second_latest_idx = df.index[-2]
 
-            # سگنل انیشیلائز کرو
             direction = None
             confidence = 0.0
             indicator_count = 0
 
-            # RSI-based signals
+            # RSI
             if df.loc[latest_idx, "rsi"] < 25:
                 direction = "LONG"
                 confidence += 30
@@ -46,92 +58,84 @@ async def analyze_symbol(exchange, symbol):
                 confidence += 30
                 indicator_count += 1
 
-            # MACD-based signals
+            # MACD crossover
             macd_hist = df.loc[latest_idx, "macd"] - df.loc[latest_idx, "macd_signal"]
-            if df.loc[latest_idx, "macd"] > df.loc[latest_idx, "macd_signal"] and \
-               df.loc[second_latest_idx, "macd"] <= df.loc[second_latest_idx, "macd_signal"] and macd_hist > 0:
-                if direction == "LONG" or direction is None:
+            macd_cross_up = df.loc[latest_idx, "macd"] > df.loc[latest_idx, "macd_signal"] and df.loc[second_latest_idx, "macd"] <= df.loc[second_latest_idx, "macd_signal"]
+            macd_cross_down = df.loc[latest_idx, "macd"] < df.loc[latest_idx, "macd_signal"] and df.loc[second_latest_idx, "macd"] >= df.loc[second_latest_idx, "macd_signal"]
+
+            if macd_cross_up and macd_hist > 0:
+                if direction in [None, "LONG"]:
                     direction = "LONG"
                     confidence += 25
                     indicator_count += 1
-            elif df.loc[latest_idx, "macd"] < df.loc[latest_idx, "macd_signal"] and \
-                 df.loc[second_latest_idx, "macd"] >= df.loc[second_latest_idx, "macd_signal"] and macd_hist < 0:
-                if direction == "SHORT" or direction is None:
+            elif macd_cross_down and macd_hist < 0:
+                if direction in [None, "SHORT"]:
                     direction = "SHORT"
                     confidence += 25
                     indicator_count += 1
 
-            # کینڈل پیٹرن (پوری ڈیٹا فریم استعمال کرو)
+            # Candlestick pattern
             if is_bullish_engulfing(df.loc[:latest_idx]) and df.loc[latest_idx, "volume"] > df.loc[second_latest_idx, "volume"] * 1.2:
-                if direction == "LONG" or direction is None:
+                if direction in [None, "LONG"]:
                     direction = "LONG"
                     confidence += 20
                     indicator_count += 1
             elif is_bearish_engulfing(df.loc[:latest_idx]) and df.loc[latest_idx, "volume"] > df.loc[second_latest_idx, "volume"] * 1.2:
-                if direction == "SHORT" or direction is None:
+                if direction in [None, "SHORT"]:
                     direction = "SHORT"
                     confidence += 20
                     indicator_count += 1
             elif is_doji(df.loc[:latest_idx]):
                 confidence -= 15
 
-            # بریک آؤٹ ڈیٹیکشن
+            # Breakout
             breakout = detect_breakout(df)
-            if breakout == "up":
-                if direction == "LONG" or direction is None:
-                    direction = "LONG"
-                    confidence += 20
-                    indicator_count += 1
-            elif breakout == "down":
-                if direction == "SHORT" or direction is None:
-                    direction = "SHORT"
-                    confidence += 20
-                    indicator_count += 1
+            if breakout == "up" and direction in [None, "LONG"]:
+                direction = "LONG"
+                confidence += 20
+                indicator_count += 1
+            elif breakout == "down" and direction in [None, "SHORT"]:
+                direction = "SHORT"
+                confidence += 20
+                indicator_count += 1
 
-            # کم از کم 2 انڈیکیٹرز
             if indicator_count < 2:
-                log(f"[{symbol}] Signal rejected for {timeframe}: insufficient indicators ({indicator_count})")
+                log(f"[{symbol}] Skipped {timeframe}: insufficient indicators ({indicator_count})")
                 continue
 
-            # ML-based confidence
+            # ML Prediction
             features = df[["rsi", "macd", "macd_signal", "close", "volume"]].iloc[-1:].copy()
-            ml_confidence = await predict_confidence(symbol, features)
-            log(f"[{symbol}] ML Confidence: {ml_confidence:.2%}")
-            confidence = min(confidence + ml_confidence * 0.5, 100)
+            ml_conf = await predict_confidence(symbol, features)
+            log(f"[{symbol}] ML confidence for {timeframe}: {ml_conf:.2%}")
+            confidence = min(confidence + ml_conf * 0.5, 100)
 
-            # ڈائریکشن چیک
             if direction not in ["LONG", "SHORT"]:
-                log(f"[{symbol}] Signal rejected for {timeframe}: direction=None, confidence={confidence:.1f}")
+                log(f"[{symbol}] Skipped {timeframe}: direction None")
                 continue
 
-            # ملٹی ٹائم فریم ایگریمنٹ
             timeframe_directions[timeframe] = direction
-
-            # TP1 امکان
             backtest_hit_rate = get_tp1_hit_rate(symbol, timeframe)
-            tp1_possibility = min(ml_confidence * 0.5 + backtest_hit_rate * 0.5, 0.95)
+            tp1_possibility = min(ml_conf * 0.5 + backtest_hit_rate * 0.5, 0.95)
 
-            # TP/SL ایڈجسٹمنٹ
             current_price = df.loc[latest_idx, "close"]
             if timeframe == "15m":
-                tp_percentages = [1.015, 1.03, 1.05]  # ±1.5%, ±3%, ±5%
-                sl_percentage = 0.985  # ±1.5%
+                tp_percentages = [1.015, 1.03, 1.05]
+                sl_percentage = 0.985
             else:
-                tp_percentages = [1.02, 1.05, 1.08]  # ±2%, ±5%, ±8%
-                sl_percentage = 0.98  # ±2%
+                tp_percentages = [1.02, 1.05, 1.08]
+                sl_percentage = 0.98
 
             if direction == "LONG":
-                tp1 = current_price * tp_percentages[0]
-                tp2 = current_price * tp_percentages[1]
-                tp3 = current_price * tp_percentages[2]
-                sl = current_price * sl_percentage
-            else:  # SHORT
-                tp1 = current_price / tp_percentages[0]
-                tp2 = current_price / tp_percentages[1]
-                tp3 = current_price / tp_percentages[2]
-                sl = current_price / sl_percentage
+                tp1 = round(current_price * tp_percentages[0], 6)
+                tp2 = round(current_price * tp_percentages[1], 6)
+                tp3 = round(current_price * tp_percentages[2], 6)
+                sl = round(current_price * sl_percentage, 6)
+            else:
+                tp1 = round(current_price / tp_percentages[0], 6)
+                tp2 = round(current_price / tp_percentages[1], 6)
+                tp3 = round(current_price / tp_percentages[2], 6)
+                sl = round(current_price / sl_percentage, 6)
 
-            # سگنل بناؤ
             signal = {
                 "symbol": symbol,
                 "timeframe": timeframe,
@@ -141,38 +145,37 @@ async def analyze_symbol(exchange, symbol):
                 "tp2": tp2,
                 "tp3": tp3,
                 "sl": sl,
-                "confidence": confidence,
-                "tp1_possibility": tp1_possibility
+                "confidence": round(confidence, 2),
+                "tp1_possibility": round(tp1_possibility, 4),
             }
 
-            log(f"[{symbol}] Signal for {timeframe}: {direction}, Confidence: {confidence:.2%}, TP1 Possibility: {tp1_possibility:.2%}")
+            log(f"[{symbol}] Signal {timeframe}: {direction}, Confidence: {confidence:.2f}%, TP1 Possibility: {tp1_possibility:.2%}")
             signals.append(signal)
 
         if not signals:
-            log(f"[{symbol}] No valid signals for any timeframe", level="ERROR")
+            log(f"[{symbol}] No valid signals found", level="ERROR")
             return None
 
-        # ملٹی ٹائم فریم ایگریمنٹ چیک
+        # Multi-timeframe agreement filter
         valid_signals = []
-        for signal in signals:
-            tf = signal["timeframe"]
-            direction = signal["direction"]
-            other_tfs = [t for t in timeframe_directions if t != tf]
-            has_agreement = any(timeframe_directions.get(other_tf) == direction for other_tf in other_tfs)
-            if has_agreement:
-                valid_signals.append(signal)
+        for sig in signals:
+            tf = sig["timeframe"]
+            dir_ = sig["direction"]
+            others = [k for k in timeframe_directions if k != tf]
+            agreement = any(timeframe_directions.get(o) == dir_ for o in others)
+            if agreement:
+                valid_signals.append(sig)
             else:
-                log(f"[{symbol}] Signal rejected for {tf}: no multi-timeframe agreement")
+                log(f"[{symbol}] Rejected {tf}: no multi-timeframe agreement")
 
         if not valid_signals:
             log(f"[{symbol}] No signals with multi-timeframe agreement", level="ERROR")
             return None
 
-        # بہترین سگنل
-        best_signal = max(valid_signals, key=lambda x: x["confidence"])
-        log(f"[{symbol}] Best signal selected: {best_signal['direction']} for {best_signal['timeframe']}, Confidence: {best_signal['confidence']:.2%}")
-        return best_signal
+        best = max(valid_signals, key=lambda x: x["confidence"])
+        log(f"[{symbol}] Final signal: {best['direction']} in {best['timeframe']}, Confidence: {best['confidence']:.2f}%")
+        return best
 
     except Exception as e:
-        log(f"[{symbol}] Error in analysis: {str(e)}", level="ERROR")
+        log(f"[{symbol}] Fatal error: {str(e)}", level="ERROR")
         return None
