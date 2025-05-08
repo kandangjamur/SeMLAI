@@ -27,9 +27,9 @@ async def analyze_symbol(exchange, symbol):
             df = calculate_indicators(df)
             log(f"[{symbol}] Indicators calculated for {len(df)} rows in {timeframe}")
 
-            # تازہ ترین کینڈل ڈیٹا
-            latest = df.iloc[-1]
-            second_latest = df.iloc[-2]
+            # تازہ ترین ڈیٹا
+            latest_idx = df.index[-1]
+            second_latest_idx = df.index[-2]
 
             # سگنل انیشیلائز کرو
             direction = None
@@ -37,40 +37,42 @@ async def analyze_symbol(exchange, symbol):
             indicator_count = 0
 
             # RSI-based signals
-            if latest["rsi"] < 25:
+            if df.loc[latest_idx, "rsi"] < 25:
                 direction = "LONG"
                 confidence += 30
                 indicator_count += 1
-            elif latest["rsi"] > 75:
+            elif df.loc[latest_idx, "rsi"] > 75:
                 direction = "SHORT"
                 confidence += 30
                 indicator_count += 1
 
             # MACD-based signals
-            macd_hist = latest["macd"] - latest["macd_signal"]
-            if latest["macd"] > latest["macd_signal"] and second_latest["macd"] <= second_latest["macd_signal"] and macd_hist > 0:
+            macd_hist = df.loc[latest_idx, "macd"] - df.loc[latest_idx, "macd_signal"]
+            if df.loc[latest_idx, "macd"] > df.loc[latest_idx, "macd_signal"] and \
+               df.loc[second_latest_idx, "macd"] <= df.loc[second_latest_idx, "macd_signal"] and macd_hist > 0:
                 if direction == "LONG" or direction is None:
                     direction = "LONG"
                     confidence += 25
                     indicator_count += 1
-            elif latest["macd"] < latest["macd_signal"] and second_latest["macd"] >= second_latest["macd_signal"] and macd_hist < 0:
+            elif df.loc[latest_idx, "macd"] < df.loc[latest_idx, "macd_signal"] and \
+                 df.loc[second_latest_idx, "macd"] >= df.loc[second_latest_idx, "macd_signal"] and macd_hist < 0:
                 if direction == "SHORT" or direction is None:
                     direction = "SHORT"
                     confidence += 25
                     indicator_count += 1
 
-            # کینڈل پیٹرن
-            if is_bullish_engulfing(second_latest, latest) and latest["volume"] > second_latest["volume"] * 1.2:
+            # کینڈل پیٹرن (پوری ڈیٹا فریم استعمال کرو)
+            if is_bullish_engulfing(df.loc[:latest_idx]) and df.loc[latest_idx, "volume"] > df.loc[second_latest_idx, "volume"] * 1.2:
                 if direction == "LONG" or direction is None:
                     direction = "LONG"
                     confidence += 20
                     indicator_count += 1
-            elif is_bearish_engulfing(second_latest, latest) and latest["volume"] > second_latest["volume"] * 1.2:
+            elif is_bearish_engulfing(df.loc[:latest_idx]) and df.loc[latest_idx, "volume"] > df.loc[second_latest_idx, "volume"] * 1.2:
                 if direction == "SHORT" or direction is None:
                     direction = "SHORT"
                     confidence += 20
                     indicator_count += 1
-            elif is_doji(latest):
+            elif is_doji(df.loc[:latest_idx]):
                 confidence -= 15
 
             # بریک آؤٹ ڈیٹیکشن
@@ -110,7 +112,7 @@ async def analyze_symbol(exchange, symbol):
             tp1_possibility = min(ml_confidence * 0.5 + backtest_hit_rate * 0.5, 0.95)
 
             # TP/SL ایڈجسٹمنٹ
-            current_price = latest["close"]
+            current_price = df.loc[latest_idx, "close"]
             if timeframe == "15m":
                 tp_percentages = [1.015, 1.03, 1.05]  # ±1.5%, ±3%, ±5%
                 sl_percentage = 0.985  # ±1.5%
