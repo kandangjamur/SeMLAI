@@ -2,9 +2,9 @@ import pandas as pd
 import asyncio
 from core.indicators import calculate_indicators
 from core.candle_patterns import is_bullish_engulfing, is_bearish_engulfing, is_doji
-from core.backtest import get_tp1_hit_rate
+from data.backtest import get_tp1_hit_rate
 from utils.support_resistance import detect_breakout
-from models.predictor import predict_confidence
+from model.predictor import predict_confidence
 from utils.logger import log
 
 async def analyze_symbol(exchange, symbol):
@@ -36,7 +36,7 @@ async def analyze_symbol(exchange, symbol):
             confidence = 0.0
             indicator_count = 0
 
-            # RSI-based signals (سخت تھریشولڈز)
+            # RSI-based signals
             if latest["rsi"] < 25:
                 direction = "LONG"
                 confidence += 30
@@ -46,7 +46,7 @@ async def analyze_symbol(exchange, symbol):
                 confidence += 30
                 indicator_count += 1
 
-            # MACD-based signals (ہسٹوگرام کنفرمیشن کے ساتھ)
+            # MACD-based signals
             macd_hist = latest["macd"] - latest["macd_signal"]
             if latest["macd"] > latest["macd_signal"] and second_latest["macd"] <= second_latest["macd_signal"] and macd_hist > 0:
                 if direction == "LONG" or direction is None:
@@ -59,7 +59,7 @@ async def analyze_symbol(exchange, symbol):
                     confidence += 25
                     indicator_count += 1
 
-            # کینڈل پیٹرن (والیوم کنفرمیشن کے ساتھ)
+            # کینڈل پیٹرن
             if is_bullish_engulfing(second_latest, latest) and latest["volume"] > second_latest["volume"] * 1.2:
                 if direction == "LONG" or direction is None:
                     direction = "LONG"
@@ -71,7 +71,7 @@ async def analyze_symbol(exchange, symbol):
                     confidence += 20
                     indicator_count += 1
             elif is_doji(latest):
-                confidence -= 15  # غیر یقینی کے لیے کنفیڈنس کم کرو
+                confidence -= 15
 
             # بریک آؤٹ ڈیٹیکشن
             breakout = detect_breakout(df)
@@ -86,7 +86,7 @@ async def analyze_symbol(exchange, symbol):
                     confidence += 20
                     indicator_count += 1
 
-            # کم از کم 2 انڈیکیٹرز کی ضرورت
+            # کم از کم 2 انڈیکیٹرز
             if indicator_count < 2:
                 log(f"[{symbol}] Signal rejected for {timeframe}: insufficient indicators ({indicator_count})")
                 continue
@@ -95,21 +95,21 @@ async def analyze_symbol(exchange, symbol):
             features = df[["rsi", "macd", "macd_signal", "close", "volume"]].iloc[-1:].copy()
             ml_confidence = await predict_confidence(symbol, features)
             log(f"[{symbol}] ML Confidence: {ml_confidence:.2%}")
-            confidence = min(confidence + ml_confidence * 0.5, 100)  # ML وزن کم کیا
+            confidence = min(confidence + ml_confidence * 0.5, 100)
 
             # ڈائریکشن چیک
             if direction not in ["LONG", "SHORT"]:
                 log(f"[{symbol}] Signal rejected for {timeframe}: direction=None, confidence={confidence:.1f}")
                 continue
 
-            # ملٹی ٹائم فریم ایگریمنٹ کے لیے ڈائریکشن سٹور کرو
+            # ملٹی ٹائم فریم ایگریمنٹ
             timeframe_directions[timeframe] = direction
 
-            # TP1 امکان کیلکولیٹ کرو (ML کنفیڈنس + بیک ٹیسٹ ہٹ ریٹ)
+            # TP1 امکان
             backtest_hit_rate = get_tp1_hit_rate(symbol, timeframe)
             tp1_possibility = min(ml_confidence * 0.5 + backtest_hit_rate * 0.5, 0.95)
 
-            # ٹائم فریم کی بنیاد پر TP/SL ایڈجسٹ کرو
+            # TP/SL ایڈجسٹمنٹ
             current_price = latest["close"]
             if timeframe == "15m":
                 tp_percentages = [1.015, 1.03, 1.05]  # ±1.5%, ±3%, ±5%
@@ -166,7 +166,7 @@ async def analyze_symbol(exchange, symbol):
             log(f"[{symbol}] No signals with multi-timeframe agreement", level="ERROR")
             return None
 
-        # بہترین سگنل چنو
+        # بہترین سگنل
         best_signal = max(valid_signals, key=lambda x: x["confidence"])
         log(f"[{symbol}] Best signal selected: {best_signal['direction']} for {best_signal['timeframe']}, Confidence: {best_signal['confidence']:.2%}")
         return best_signal
