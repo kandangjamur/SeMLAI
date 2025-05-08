@@ -18,8 +18,8 @@ async def analyze_symbol(exchange, symbol):
             df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
-            # Relaxed volume check
-            if len(df) < 50 or df["volume"].mean() < 10_000:
+            # Relaxed checks
+            if len(df) < 30 or df["volume"].mean() < 5_000:
                 log(f"[{symbol}] Insufficient data or low volume for {timeframe}", level='WARNING')
                 continue
 
@@ -32,12 +32,12 @@ async def analyze_symbol(exchange, symbol):
             direction = None
 
             # Rule-based signals
-            if df["rsi"].iloc[-1] < 30 and df["stoch_rsi"].iloc[-1] < 20:
+            if df["rsi"].iloc[-1] < 30:
                 direction = "LONG"
-                confidence += 20
-            elif df["rsi"].iloc[-1] > 70 and df["stoch_rsi"].iloc[-1] > 80:
+                confidence += 25  # Increased weight for RSI
+            elif df["rsi"].iloc[-1] > 70:
                 direction = "SHORT"
-                confidence += 20
+                confidence += 25
 
             if df["macd"].iloc[-1] > df["macd_signal"].iloc[-1] and df["macd"].iloc[-2] <= df["macd_signal"].iloc[-2]:
                 confidence += 10
@@ -96,11 +96,11 @@ async def analyze_symbol(exchange, symbol):
                 "tp2": tp2,
                 "tp3": tp3,
                 "sl": sl,
-                "tp1_chance": 80 if confidence >= 60 else 50,
+                "tp1_possibility": 80 if confidence >= 60 else 50,
                 "timestamp": df["timestamp"].iloc[-1]
             }
 
-            if signal["confidence"] >= 60 and signal["tp1_chance"] >= 80:
+            if signal["confidence"] >= 60 and signal["tp1_possibility"] >= 80:
                 signals.append(signal)
                 log(f"[{symbol}] Signal for {timeframe}: {signal['direction']}, Confidence: {signal['confidence']}%")
 
