@@ -1,11 +1,19 @@
 import pandas as pd
 import asyncio
+from fastapi import FastAPI
 from core.indicators import calculate_indicators
 from core.candle_patterns import is_bullish_engulfing, is_bearish_engulfing, is_doji
 from data.backtest import get_tp1_hit_rate
 from utils.support_resistance import detect_breakout
 from model.predictor import predict_confidence
 from utils.logger import log
+
+# FastAPI app initialization
+app = FastAPI()
+
+@app.get("/")
+async def read_root():
+    return {"message": "Crypto Signal Bot Running!"}
 
 async def fetch_ohlcv_safe(exchange, symbol, timeframe, retries=3):
     for _ in range(retries):
@@ -179,3 +187,8 @@ async def analyze_symbol(exchange, symbol):
     except Exception as e:
         log(f"[{symbol}] Fatal error: {str(e)}", level="ERROR")
         return None
+
+# Run the FastAPI app (if running in a local or production environment)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
