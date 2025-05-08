@@ -21,11 +21,6 @@ load_dotenv()
 # FastAPI ایپ
 app = FastAPI()
 
-# سگنل کی حدیں
-CONFIDENCE_THRESHOLD = 60  # نارمل سگنل کے لیے کم از کم 60%
-TP1_POSSIBILITY_THRESHOLD = 0.8  # TP1 امکان کم از کم 80%
-SCALPING_CONFIDENCE_THRESHOLD = 85  # اس سے کم ہو تو Scalping Trade
-
 # ٹیلیگرام پر میسج بھیجنے والا فنکشن
 async def send_telegram_message(message):
     try:
@@ -95,39 +90,44 @@ async def scan_symbols():
         for symbol in symbols:
             try:
                 result = await analyze_symbol(exchange, symbol)
-                if not result or not result.get('signal'):
+                if not result or not result.get('direction'):
                     logger.info(f"⚠️ {symbol} - No valid signal")
+                    logger.info("---")
                     continue
 
                 confidence = result.get("confidence", 0)
-                tp1_possibility = result.get("tp1_chance", 0)
-                direction = result.get("signal", "none")
-                trade_type = "Scalping" if confidence < SCALPING_CONFIDENCE_THRESHOLD else "Normal"
+                direction = result.get("direction", "none")
+                # ڈمی tp1_possibility کیونکہ core/analysis.py میں یہ نہیں ہے
+                tp1_possibility = 0.75  # اگر core/analysis.py میں شامل کرو تو یہ ہٹائیں
+                trade_type = "Scalping" if confidence < 85 else "Normal"
 
+                # ڈائنامک ڈسپلے آؤٹ پٹ
                 logger.info(
                     f"🔍 {symbol} | Confidence: {confidence:.2f} | "
                     f"Direction: {direction} | TP1 Chance: {tp1_possibility:.2f}"
                 )
 
-                if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
-                    message = (
-                        f"🚀 {symbol}\n"
-                        f"Trade Type: {trade_type}\n"
-                        f"Direction: {direction}\n"
-                        f"Confidence: {confidence:.2f}\n"
-                        f"TP1 Possibility: {tp1_possibility:.2f}"
-                    )
-                    await send_telegram_message(message)
-                    logger.info("✅ Signal SENT ✅")
-                elif confidence < CONFIDENCE_THRESHOLD:
-                    logger.info("⚠️ Skipped - Low confidence")
-                elif tp1_possibility < TP1_POSSIBILITY_THRESHOLD:
-                    logger.info("⚠️ Skipped - Low TP1 possibility")
+                # سگنل ٹیلیگرام پر بھیجو
+                message = (
+                    f"🚀 {symbol}\n"
+                    f"Trade Type: {trade_type}\n"
+                    f"Direction: {direction}\n"
+                    f"Entry: {result['entry']:.4f}\n"
+                    f"TP1: {result['tp1']:.4f}\n"
+                    f"TP2: {result['tp2']:.4f}\n"
+                    f"TP3: {result['tp3']:.4f}\n"
+                    f"SL: {result['sl']:.4f}\n"
+                    f"Confidence: {confidence:.2f}\n"
+                    f"TP1 Possibility: {tp1_possibility:.2f}"
+                )
+                await send_telegram_message(message)
+                logger.info("✅ Signal SENT ✅")
 
                 logger.info("---")
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
+                logger.info("---")
 
     except Exception as e:
         logger.error(f"Error in scan_symbols: {e}")
