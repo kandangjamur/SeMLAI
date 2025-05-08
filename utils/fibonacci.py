@@ -24,16 +24,18 @@ def calculate_fibonacci_levels(df):
             log("Invalid high/low for Fibonacci levels", level='WARNING')
             return None
 
-        # Calculate Fibonacci levels
+        # Calculate Fibonacci levels with original labels
         diff = max_high - min_low
         fib_levels = {
-            'level_0_0': min_low,
-            'level_0_236': min_low + 0.236 * diff,
-            'level_0_382': min_low + 0.382 * diff,
-            'level_0_5': min_low + 0.5 * diff,
-            'level_0_618': min_low + 0.618 * diff,
-            'level_0_786': min_low + 0.786 * diff,
-            'level_1_0': max_high
+            'fib_0.0': min_low,
+            'fib_0.236': min_low + 0.236 * diff,
+            'fib_0.382': min_low + 0.382 * diff,
+            'fib_0.5': min_low + 0.5 * diff,
+            'fib_0.618': min_low + 0.618 * diff,
+            'fib_0.786': min_low + 0.786 * diff,
+            'fib_1.0': max_high,
+            'fib_-0.382': min_low - 0.382 * diff,  # Added to match core/analysis.py
+            'fib_-0.618': min_low - 0.618 * diff   # Added to match core/analysis.py
         }
 
         # Add Fibonacci levels to DataFrame
