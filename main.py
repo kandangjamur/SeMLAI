@@ -15,13 +15,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger("scanner")
 
-# .env فائل سے ماحولیاتی ویری ایبل لوڈ کرو
+# .env فائل سے ویری ایبل لوڈ کرو
 load_dotenv()
 
 # FastAPI ایپ
 app = FastAPI()
+bot_task = None  # Task reference محفوظ رکھنے کے لیے
 
-# ٹیلیگرام پر میسج بھیجنے والا فنکشن
+# ٹیلیگرام فنکشن
 async def send_telegram_message(message):
     try:
         bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -35,17 +36,19 @@ async def send_telegram_message(message):
     except Exception as e:
         logger.error(f"Error sending Telegram message: {e}")
 
-# روٹ ہیلتھ چیک
 @app.get("/")
 async def root():
     return {"message": "Crypto Signal Bot is running."}
 
-# Koyeb کے لیے ہیلتھ چیک
 @app.get("/health")
 async def health():
     return {"status": "healthy", "message": "Bot is operational."}
 
-# صرف USDT پیئرز حاصل کرو
+@app.get("/ping")
+async def ping():
+    return {"message": "pong"}
+
+# Valid USDT symbols
 async def get_valid_symbols(exchange):
     try:
         markets = await exchange.load_markets()
@@ -73,7 +76,6 @@ async def scan_symbols():
         return
 
     try:
-        # کنکشن ٹیسٹ
         try:
             await exchange.fetch_ticker('BTC/USDT')
             logger.info("Binance API connection successful.")
@@ -81,7 +83,6 @@ async def scan_symbols():
             logger.error(f"Binance API connection failed: {e}")
             return
 
-        # تمام USDT symbols حاصل کرو
         symbols = await get_valid_symbols(exchange)
         if not symbols:
             logger.error("No valid USDT symbols found!")
@@ -97,17 +98,15 @@ async def scan_symbols():
 
                 confidence = result.get("confidence", 0)
                 direction = result.get("direction", "none")
-                # ڈمی tp1_possibility کیونکہ core/analysis.py میں یہ نہیں ہے
-                tp1_possibility = 0.75  # اگر core/analysis.py میں شامل کرو تو یہ ہٹائیں
+                tp1_possibility = 0.75  # ڈمی ویلیو
+
                 trade_type = "Scalping" if confidence < 85 else "Normal"
 
-                # ڈائنامک ڈسپلے آؤٹ پٹ
                 logger.info(
                     f"🔍 {symbol} | Confidence: {confidence:.2f} | "
                     f"Direction: {direction} | TP1 Chance: {tp1_possibility:.2f}"
                 )
 
-                # سگنل ٹیلیگرام پر بھیجو
                 message = (
                     f"🚀 {symbol}\n"
                     f"Trade Type: {trade_type}\n"
@@ -122,7 +121,6 @@ async def scan_symbols():
                 )
                 await send_telegram_message(message)
                 logger.info("✅ Signal SENT ✅")
-
                 logger.info("---")
 
             except Exception as e:
@@ -134,20 +132,20 @@ async def scan_symbols():
     finally:
         await exchange.close()
 
-# مسلسل سکینر چلانے والا فنکشن
+# مسلسل سکینر
 async def run_bot():
     while True:
         try:
             await scan_symbols()
         except Exception as e:
             logger.error(f"Error in run_bot: {e}")
-        await asyncio.sleep(60)  # ہر 60 سیکنڈ بعد دوبارہ سکین کرو
+        await asyncio.sleep(60)
 
-# جب ایپ اسٹارٹ ہو تو سکینر چلاؤ
+# ایپ کے شروع ہوتے ہی بوٹ اسٹارٹ
 @app.on_event("startup")
 async def start_bot():
-    asyncio.create_task(run_bot())
+    global bot_task
+    bot_task = asyncio.ensure_future(run_bot())  # task reference محفوظ رکھیں
 
-# ایپ رن کرو
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000)
