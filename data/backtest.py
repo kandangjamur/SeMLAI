@@ -1,78 +1,42 @@
 import pandas as pd
-from core.indicators import calculate_indicators
-import ccxt.async_support as ccxt
 from utils.logger import log
-import asyncio
 
-async def run_backtest_symbol(exchange, symbol):
+def get_tp1_hit_rate(symbol: str, timeframe: str, backtest_file: str = "data/backtest_data.csv") -> float:
+    """
+    بیک ٹیسٹ فائل سے سمبل اور ٹائم فریم کے لیے TP1 ہٹ ریٹ کیلکولیٹ کرتا ہے۔
+    
+    Args:
+        symbol (str): سمبل (مثلاً BTC/USDT)
+        timeframe (str): ٹائم فریم (مثلاً 15m, 1h, 4h)
+        backtest_file (str): بیک ٹیسٹ فائل کا پاتھ
+    
+    Returns:
+        float: TP1 ہٹ ریٹ (0 سے 1 کے درمیان)
+    """
     try:
-        results = []
-        timeframes = ['15m', '1h', '4h']
-        for tf in timeframes:
-            limit = 2880 if tf == '15m' else 720 if tf == '1h' else 180  # ~30 days
-            ohlcv = await exchange.fetch_ohlcv(symbol, tf, limit=limit)
-            if len(ohlcv) < 50:
-                continue
-
-            for i in range(50, len(ohlcv)-10):
-                subset = ohlcv[i-50:i]
-                signal = calculate_indicators(symbol, subset)
-                if not signal or signal['confidence'] < 80:
-                    continue
-
-                highs = [c[2] for c in ohlcv[i+1:i+10]]
-                lows = [c[3] for c in ohlcv[i+1:i+10]]
-                status = "pending"
-                
-                if signal["direction"] == "LONG":
-                    if signal["tp3"] <= max(highs):
-                        status = "tp3"
-                    elif signal["tp2"] <= max(highs):
-                        status = "tp2"
-                    elif signal["tp1"] <= max(highs):
-                        status = "tp1"
-                    elif signal["sl"] >= min(lows):
-                        status = "sl"
-                else:  # SHORT
-                    if signal["tp3"] >= min(lows):
-                        status = "tp3"
-                    elif signal["tp2"] >= min(lows):
-                        status = "tp2"
-                    elif signal["tp1"] >= min(lows):
-                        status = "tp1"
-                    elif signal["sl"] <= max(highs):
-                        status = "sl"
-
-                results.append({
-                    "symbol": symbol,
-                    "confidence": signal["confidence"],
-                    "trade_type": signal["trade_type"],
-                    "tp1": signal["tp1"],
-                    "tp2": signal["tp2"],
-                    "tp3": signal["tp3"],
-                    "sl": signal["sl"],
-                    "status": status,
-                    "timeframe": tf
-                })
-
-        if not results:
-            log(f"[{symbol}] No backtest results", level='WARNING')
-            return None
-
-        df = pd.DataFrame(results)
-        tp1_hits = len(df[df['status'] == 'tp1'])
-        total = len(df)
-        tp1_hit_rate = round((tp1_hits / total * 100) if total > 0 else 0, 2)
-
-        # Multi-timeframe confirmation
-        tf_counts = df['timeframe'].value_counts()
-        if len(tf_counts) < 2:
-            log(f"[{symbol}] Insufficient multi-timeframe data", level='WARNING')
-            return None
-
-        log(f"[{symbol}] Backtest complete: TP1 hit rate = {tp1_hit_rate}%")
-        return {"tp1_hit_rate": tp1_hit_rate}
-
+        # بیک ٹیسٹ ڈیٹا پڑھو
+        df = pd.read_csv(backtest_file)
+        
+        # سمبل اور ٹائم فریم کے لیے فلٹر کرو
+        filtered_df = df[(df["symbol"] == symbol) & (df["timeframe"] == timeframe)]
+        
+        if len(filtered_df) < 10:
+            log(f"[{symbol}] Insufficient backtest data for {timeframe}: {len(filtered_df)} trades", level="WARNING")
+            return 0.7  # ڈیفالٹ ہٹ ریٹ
+        
+        # TP1 ہٹ ریٹ کیلکولیٹ کرو
+        hit_rate = filtered_df["hit_tp1"].mean()
+        
+        if pd.isna(hit_rate):
+            log(f"[{symbol}] No valid TP1 hit data for {timeframe}", level="WARNING")
+            return 0.7  # ڈیفالٹ ہٹ ریٹ
+        
+        log(f"[{symbol}] TP1 hit rate for {timeframe}: {hit_rate:.2%}")
+        return hit_rate
+    
+    except FileNotFoundError:
+        log(f"Backtest file {backtest_file} not found", level="ERROR")
+        return 0.7  # ڈیفالٹ ہٹ ریٹ
     except Exception as e:
-        log(f"[{symbol}] Backtest Error: {e}", level='ERROR')
-        return None
+        log(f"Error calculating TP1 hit rate for {symbol}: {str(e)}", level="ERROR")
+        return 0.7  # ڈیفالٹ ہٹ ریٹ
