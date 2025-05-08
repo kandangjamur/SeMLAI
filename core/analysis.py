@@ -74,17 +74,26 @@ async def analyze_symbol(exchange, symbol):
 
             # Sentiment adjustment (optional)
             try:
-                sentiment_score = await fetch_sentiment(symbol)
-                confidence = adjust_confidence(symbol, confidence, sentiment_score)
+                sentiment_score = fetch_sentiment(symbol)  # Removed 'await' since fetch_sentiment is not async
+                confidence = adjust_confidence(confidence, sentiment_score)  # Adjusted to match function signature
             except Exception as e:
                 log(f"[{symbol}] Sentiment analysis failed: {e}", level='WARNING')
 
             # Fibonacci levels for TP/SL
             fib_levels = calculate_fibonacci_levels(df)
-            tp1 = fib_levels["0.382"] if direction == "LONG" else fib_levels["-0.382"]
-            tp2 = fib_levels["0.618"] if direction == "LONG" else fib_levels["-0.618"]
-            tp3 = fib_levels["1.0"] if direction == "LONG" else fib_levels["-1.0"]
-            sl = fib_levels["-0.236"] if direction == "LONG" else fib_levels["0.236"]
+            if fib_levels is None or fib_levels.empty:
+                log(f"[{symbol}] No Fibonacci levels for {timeframe}", level='WARNING')
+                continue
+
+            # Use correct DataFrame column access for Fibonacci levels
+            try:
+                tp1 = fib_levels["0.382"].iloc[-1] if direction == "LONG" else fib_levels["-0.382"].iloc[-1]
+                tp2 = fib_levels["0.618"].iloc[-1] if direction == "LONG" else fib_levels["-0.618"].iloc[-1]
+                tp3 = fib_levels["1.0"].iloc[-1] if direction == "LONG" else fib_levels["-1.0"].iloc[-1]
+                sl = fib_levels["-0.236"].iloc[-1] if direction == "LONG" else fib_levels["0.236"].iloc[-1]
+            except KeyError as e:
+                log(f"[{symbol}] Error accessing Fibonacci levels: {e}", level='ERROR')
+                continue
 
             signal = {
                 "symbol": symbol,
