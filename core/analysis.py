@@ -81,37 +81,35 @@ async def analyze_symbol(exchange, symbol):
 
             # Fibonacci levels for TP/SL
             fib_levels = calculate_fibonacci_levels(df)
-            if fib_levels is None or fib_levels.empty:
-                log(f"[{symbol}] No Fibonacci levels for {timeframe}", level='WARNING')
-                continue
+            current_price = df["close"].iloc[-1]
 
-            # Use correct DataFrame column access for Fibonacci levels
-            try:
-                current_price = df["close"].iloc[-1]
-                tp1 = fib_levels["0.382"].iloc[-1] if direction == "LONG" else fib_levels["-0.382"].iloc[-1]
-                tp2 = fib_levels["0.618"].iloc[-1] if direction == "LONG" else fib_levels["-0.618"].iloc[-1]
-                tp3 = fib_levels["1.0"].iloc[-1] if direction == "LONG" else fib_levels["0.0"].iloc[-1]  # Replaced '-1.0' with '0.0'
-                sl = fib_levels["-0.236"].iloc[-1] if direction == "LONG" else fib_levels["0.236"].iloc[-1]
-                
-                # Fallback to current price if any level is missing or invalid
-                tp1 = tp1 if pd.notna(tp1) else current_price
-                tp2 = tp2 if pd.notna(tp2) else current_price
-                tp3 = tp3 if pd.notna(tp3) else current_price
-                sl = sl if pd.notna(sl) else current_price
-            except KeyError as e:
-                log(f"[{symbol}] Error accessing Fibonacci levels: {e}", level='ERROR')
-                # Use default values to continue
-                current_price = df["close"].iloc[-1]
-                tp1 = current_price
-                tp2 = current_price
-                tp3 = current_price
-                sl = current_price
+            # Default TP/SL values in case Fibonacci fails
+            tp1 = current_price * 1.02 if direction == "LONG" else current_price * 0.98
+            tp2 = current_price * 1.05 if direction == "LONG" else current_price * 0.95
+            tp3 = current_price * 1.08 if direction == "LONG" else current_price * 0.92
+            sl = current_price * 0.98 if direction == "LONG" else current_price * 1.02
+
+            if fib_levels is not None and not fib_levels.empty:
+                try:
+                    tp1 = fib_levels["0.382"].iloc[-1] if direction == "LONG" else fib_levels["-0.382"].iloc[-1]
+                    tp2 = fib_levels["0.618"].iloc[-1] if direction == "LONG" else fib_levels["-0.618"].iloc[-1]
+                    tp3 = fib_levels["1.0"].iloc[-1] if direction == "LONG" else fib_levels["0.0"].iloc[-1]
+                    sl = fib_levels["0.0"].iloc[-1] if direction == "LONG" else fib_levels["0.236"].iloc[-1]  # Replaced '-0.236' with '0.0'
+
+                    # Ensure values are valid
+                    tp1 = tp1 if pd.notna(tp1) else (current_price * 1.02 if direction == "LONG" else current_price * 0.98)
+                    tp2 = tp2 if pd.notna(tp2) else (current_price * 1.05 if direction == "LONG" else current_price * 0.95)
+                    tp3 = tp3 if pd.notna(tp3) else (current_price * 1.08 if direction == "LONG" else current_price * 0.92)
+                    sl = sl if pd.notna(sl) else (current_price * 0.98 if direction == "LONG" else current_price * 1.02)
+                except KeyError as e:
+                    log(f"[{symbol}] Error accessing Fibonacci levels: {e}, using default TP/SL", level='WARNING')
+                    # Use default values defined above
 
             signal = {
                 "symbol": symbol,
                 "timeframe": timeframe,
                 "direction": direction,
-                "price": df["close"].iloc[-1],
+                "price": current_price,
                 "confidence": min(95, round(confidence, 2)),
                 "tp1": tp1,
                 "tp2": tp2,
@@ -121,7 +119,7 @@ async def analyze_symbol(exchange, symbol):
                 "timestamp": df["timestamp"].iloc[-1]
             }
 
-            if signal["confidence"] >= 60 and signal["tp1_possibility"] >= 80:
+            if direction and signal["confidence"] >= 60 and signal["tp1_possibility"] >= 80:
                 signals.append(signal)
                 log(f"[{symbol}] Signal for {timeframe}: {signal['direction']}, Confidence: {signal['confidence']}%")
 
@@ -130,6 +128,7 @@ async def analyze_symbol(exchange, symbol):
             return None
 
         best_signal = max(signals, key=lambda x: x["confidence"])
+        log(f"[{symbol}] Best signal selected: {best_signal['direction']} for {best_signal['timeframe']}, Confidence: {best_signal['confidence']}%", level='INFO')
         return best_signal
     except Exception as e:
         log(f"[{symbol}] Error in analysis: {e}", level='ERROR')
