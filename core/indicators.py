@@ -11,7 +11,7 @@ def calculate_indicators(df):
 
         df = df.copy()
         df = df.astype({'close': 'float32', 'high': 'float32', 'low': 'float32', 'volume': 'float32'})
-        
+
         # RSI
         df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14, fillna=True).rsi()
         
@@ -40,8 +40,8 @@ def calculate_indicators(df):
         # Stochastic RSI
         df["stoch_rsi"] = ta.momentum.StochasticRSIIndicator(df["close"], window=14, smooth1=3, smooth2=3, fillna=True).stochrsi_k()
 
-        if df.isna().any().any():
-            log("NaN values in indicators", level='WARNING')
+        if df.isna().any().any() or df.isin([np.inf, -np.inf]).any().any():
+            log("NaN or Inf values in indicators", level='WARNING')
             return None
 
         log(f"Indicators calculated for {len(df)} rows")
