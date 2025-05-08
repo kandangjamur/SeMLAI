@@ -74,8 +74,8 @@ async def analyze_symbol(exchange, symbol):
 
             # Sentiment adjustment (optional)
             try:
-                sentiment_score = fetch_sentiment(symbol)  # Removed 'await' since fetch_sentiment is not async
-                confidence = adjust_confidence(confidence, sentiment_score)  # Adjusted to match function signature
+                sentiment_score = fetch_sentiment(symbol)
+                confidence = adjust_confidence(confidence, sentiment_score)
             except Exception as e:
                 log(f"[{symbol}] Sentiment analysis failed: {e}", level='WARNING')
 
@@ -87,13 +87,25 @@ async def analyze_symbol(exchange, symbol):
 
             # Use correct DataFrame column access for Fibonacci levels
             try:
+                current_price = df["close"].iloc[-1]
                 tp1 = fib_levels["0.382"].iloc[-1] if direction == "LONG" else fib_levels["-0.382"].iloc[-1]
                 tp2 = fib_levels["0.618"].iloc[-1] if direction == "LONG" else fib_levels["-0.618"].iloc[-1]
-                tp3 = fib_levels["1.0"].iloc[-1] if direction == "LONG" else fib_levels["-1.0"].iloc[-1]
+                tp3 = fib_levels["1.0"].iloc[-1] if direction == "LONG" else fib_levels["0.0"].iloc[-1]  # Replaced '-1.0' with '0.0'
                 sl = fib_levels["-0.236"].iloc[-1] if direction == "LONG" else fib_levels["0.236"].iloc[-1]
+                
+                # Fallback to current price if any level is missing or invalid
+                tp1 = tp1 if pd.notna(tp1) else current_price
+                tp2 = tp2 if pd.notna(tp2) else current_price
+                tp3 = tp3 if pd.notna(tp3) else current_price
+                sl = sl if pd.notna(sl) else current_price
             except KeyError as e:
                 log(f"[{symbol}] Error accessing Fibonacci levels: {e}", level='ERROR')
-                continue
+                # Use default values to continue
+                current_price = df["close"].iloc[-1]
+                tp1 = current_price
+                tp2 = current_price
+                tp3 = current_price
+                sl = current_price
 
             signal = {
                 "symbol": symbol,
