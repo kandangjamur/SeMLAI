@@ -1,151 +1,181 @@
+import pandas as pd
 import asyncio
-import uvicorn
-from fastapi import FastAPI
-from core.analysis import analyze_symbol
-import ccxt.async_support as ccxt
-import os
-import logging
-from dotenv import load_dotenv
-import telegram
+from core.indicators import calculate_indicators
+from core.candle_patterns import is_bullish_engulfing, is_bearish_engulfing, is_doji
+from data.backtest import get_tp1_hit_rate
+from utils.support_resistance import detect_breakout
+from model.predictor import predict_confidence
+from utils.logger import log
 
-# لاگنگ سیٹ اپ
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger("scanner")
-
-# .env فائل سے ویری ایبل لوڈ کرو
-load_dotenv()
-
-# FastAPI ایپ
-app = FastAPI()
-bot_task = None  # Task reference محفوظ رکھنے کے لیے
-
-# ٹیلیگرام فنکشن
-async def send_telegram_message(message):
-    try:
-        bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-        chat_id = os.getenv("TELEGRAM_CHAT_ID")
-        if not bot_token or not chat_id:
-            logger.error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID missing!")
-            return
-        bot = telegram.Bot(token=bot_token)
-        await bot.send_message(chat_id=chat_id, text=message)
-        logger.info("Telegram message sent successfully.")
-    except Exception as e:
-        logger.error(f"Error sending Telegram message: {e}")
-
-@app.get("/")
-async def root():
-    return {"message": "Crypto Signal Bot is running."}
-
-@app.get("/health")
-async def health():
-    return {"status": "healthy", "message": "Bot is operational."}
-
-@app.get("/ping")
-async def ping():
-    return {"message": "pong"}
-
-# Valid USDT symbols
-async def get_valid_symbols(exchange):
-    try:
-        markets = await exchange.load_markets()
-        usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT')]
-        logger.info(f"Found {len(usdt_symbols)} USDT pairs")
-        return usdt_symbols
-    except Exception as e:
-        logger.error(f"Error fetching symbols: {e}")
-        return []
-    finally:
-        await exchange.close()
-
-# سگنل سکین فنکشن
-async def scan_symbols():
-    exchange = ccxt.binance({
-        'apiKey': os.getenv("BINANCE_API_KEY"),
-        'secret': os.getenv("BINANCE_API_SECRET"),
-        'enableRateLimit': True,
-    })
-
-    api_key = os.getenv("BINANCE_API_KEY")
-    api_secret = os.getenv("BINANCE_API_SECRET")
-    if not api_key or not api_secret:
-        logger.error("API Key or Secret is missing! Check Koyeb Config Vars.")
-        return
-
-    try:
+async def fetch_ohlcv_safe(exchange, symbol, timeframe, retries=3):
+    for _ in range(retries):
         try:
-            await exchange.fetch_ticker('BTC/USDT')
-            logger.info("Binance API connection successful.")
+            ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)
+            if ohlcv and len(ohlcv) >= 20:
+                return ohlcv
         except Exception as e:
-            logger.error(f"Binance API connection failed: {e}")
-            return
+            await asyncio.sleep(0.5)
+    return None
 
-        symbols = await get_valid_symbols(exchange)
-        if not symbols:
-            logger.error("No valid USDT symbols found!")
-            return
+async def analyze_symbol(exchange, symbol):
+    try:
+        timeframes = ["15m", "1h", "4h", "1d"]
+        signals = []
+        timeframe_directions = {}
 
-        for symbol in symbols:
-            try:
-                result = await analyze_symbol(exchange, symbol)
-                if not result or not result.get('direction'):
-                    logger.info(f"⚠️ {symbol} - No valid signal")
-                    logger.info("---")
-                    continue
+        for timeframe in timeframes:
+            ohlcv = await fetch_ohlcv_safe(exchange, symbol, timeframe)
+            if not ohlcv:
+                log(f"[{symbol}] Failed to fetch OHLCV or insufficient data for {timeframe}", level="ERROR")
+                continue
 
-                confidence = result.get("confidence", 0)
-                direction = result.get("direction", "none")
-                tp1_possibility = 0.75  # ڈمی ویلیو
+            df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
+            df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
-                trade_type = "Scalping" if confidence < 85 else "Normal"
+            if df["volume"].mean() < 50_000 or df["volume"].max() == 0:
+                log(f"[{symbol}] Low or invalid volume in {timeframe}", level="WARNING")
+                continue
 
-                logger.info(
-                    f"🔍 {symbol} | Confidence: {confidence:.2f} | "
-                    f"Direction: {direction} | TP1 Chance: {tp1_possibility:.2f}"
-                )
+            df = calculate_indicators(df)
+            if df.isnull().values.any():
+                log(f"[{symbol}] NaN values found in indicators for {timeframe}", level="WARNING")
+                continue
 
-                message = (
-                    f"🚀 {symbol}\n"
-                    f"Trade Type: {trade_type}\n"
-                    f"Direction: {direction}\n"
-                    f"Entry: {result['entry']:.4f}\n"
-                    f"TP1: {result['tp1']:.4f}\n"
-                    f"TP2: {result['tp2']:.4f}\n"
-                    f"TP3: {result['tp3']:.4f}\n"
-                    f"SL: {result['sl']:.4f}\n"
-                    f"Confidence: {confidence:.2f}\n"
-                    f"TP1 Possibility: {tp1_possibility:.2f}"
-                )
-                await send_telegram_message(message)
-                logger.info("✅ Signal SENT ✅")
-                logger.info("---")
+            latest_idx = df.index[-1]
+            second_latest_idx = df.index[-2]
 
-            except Exception as e:
-                logger.error(f"Error processing {symbol}: {e}")
-                logger.info("---")
+            direction = None
+            confidence = 0.0
+            indicator_count = 0
+
+            # RSI
+            if df.loc[latest_idx, "rsi"] < 25:
+                direction = "LONG"
+                confidence += 30
+                indicator_count += 1
+            elif df.loc[latest_idx, "rsi"] > 75:
+                direction = "SHORT"
+                confidence += 30
+                indicator_count += 1
+
+            # MACD crossover
+            macd_hist = df.loc[latest_idx, "macd"] - df.loc[latest_idx, "macd_signal"]
+            macd_cross_up = df.loc[latest_idx, "macd"] > df.loc[latest_idx, "macd_signal"] and df.loc[second_latest_idx, "macd"] <= df.loc[second_latest_idx, "macd_signal"]
+            macd_cross_down = df.loc[latest_idx, "macd"] < df.loc[latest_idx, "macd_signal"] and df.loc[second_latest_idx, "macd"] >= df.loc[second_latest_idx, "macd_signal"]
+
+            if macd_cross_up and macd_hist > 0:
+                if direction in [None, "LONG"]:
+                    direction = "LONG"
+                    confidence += 25
+                    indicator_count += 1
+            elif macd_cross_down and macd_hist < 0:
+                if direction in [None, "SHORT"]:
+                    direction = "SHORT"
+                    confidence += 25
+                    indicator_count += 1
+
+            # Candlestick pattern
+            if is_bullish_engulfing(df.loc[:latest_idx]) and df.loc[latest_idx, "volume"] > df.loc[second_latest_idx, "volume"] * 1.2:
+                if direction in [None, "LONG"]:
+                    direction = "LONG"
+                    confidence += 20
+                    indicator_count += 1
+            elif is_bearish_engulfing(df.loc[:latest_idx]) and df.loc[latest_idx, "volume"] > df.loc[second_latest_idx, "volume"] * 1.2:
+                if direction in [None, "SHORT"]:
+                    direction = "SHORT"
+                    confidence += 20
+                    indicator_count += 1
+            elif is_doji(df.loc[:latest_idx]):
+                confidence -= 15
+
+            # Breakout
+            breakout = detect_breakout(df)  # Fixed: Pass `df` here
+            if breakout == "up" and direction in [None, "LONG"]:
+                direction = "LONG"
+                confidence += 20
+                indicator_count += 1
+            elif breakout == "down" and direction in [None, "SHORT"]:
+                direction = "SHORT"
+                confidence += 20
+                indicator_count += 1
+
+            if indicator_count < 2:
+                log(f"[{symbol}] Skipped {timeframe}: insufficient indicators ({indicator_count})")
+                continue
+
+            # ML Prediction
+            features = df[["rsi", "macd", "macd_signal", "close", "volume"]].iloc[-1:].copy()
+            ml_conf = await predict_confidence(symbol, features)
+            log(f"[{symbol}] ML confidence for {timeframe}: {ml_conf:.2%}")
+            confidence = min(confidence + ml_conf * 0.5, 100)
+
+            if direction not in ["LONG", "SHORT"]:
+                log(f"[{symbol}] Skipped {timeframe}: direction None")
+                continue
+
+            timeframe_directions[timeframe] = direction
+            backtest_hit_rate = get_tp1_hit_rate(symbol, timeframe)
+            tp1_possibility = min(ml_conf * 0.5 + backtest_hit_rate * 0.5, 0.95)
+
+            current_price = df.loc[latest_idx, "close"]
+            if timeframe == "15m":
+                tp_percentages = [1.015, 1.03, 1.05]
+                sl_percentage = 0.985
+            else:
+                tp_percentages = [1.02, 1.05, 1.08]
+                sl_percentage = 0.98
+
+            if direction == "LONG":
+                tp1 = round(current_price * tp_percentages[0], 6)
+                tp2 = round(current_price * tp_percentages[1], 6)
+                tp3 = round(current_price * tp_percentages[2], 6)
+                sl = round(current_price * sl_percentage, 6)
+            else:
+                tp1 = round(current_price / tp_percentages[0], 6)
+                tp2 = round(current_price / tp_percentages[1], 6)
+                tp3 = round(current_price / tp_percentages[2], 6)
+                sl = round(current_price / sl_percentage, 6)
+
+            signal = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "direction": direction,
+                "entry": current_price,
+                "tp1": tp1,
+                "tp2": tp2,
+                "tp3": tp3,
+                "sl": sl,
+                "confidence": round(confidence, 2),
+                "tp1_possibility": round(tp1_possibility, 4),
+            }
+
+            log(f"[{symbol}] Signal {timeframe}: {direction}, Confidence: {confidence:.2f}%, TP1 Possibility: {tp1_possibility:.2%}")
+            signals.append(signal)
+
+        if not signals:
+            log(f"[{symbol}] No valid signals found", level="ERROR")
+            return None
+
+        # Multi-timeframe agreement filter
+        valid_signals = []
+        for sig in signals:
+            tf = sig["timeframe"]
+            dir_ = sig["direction"]
+            others = [k for k in timeframe_directions if k != tf]
+            agreement = any(timeframe_directions.get(o) == dir_ for o in others)
+            if agreement:
+                valid_signals.append(sig)
+            else:
+                log(f"[{symbol}] Rejected {tf}: no multi-timeframe agreement")
+
+        if not valid_signals:
+            log(f"[{symbol}] No signals with multi-timeframe agreement", level="ERROR")
+            return None
+
+        best = max(valid_signals, key=lambda x: x["confidence"])
+        log(f"[{symbol}] Final signal: {best['direction']} in {best['timeframe']}, Confidence: {best['confidence']:.2f}%")
+        return best
 
     except Exception as e:
-        logger.error(f"Error in scan_symbols: {e}")
-    finally:
-        await exchange.close()
-
-# مسلسل سکینر
-async def run_bot():
-    while True:
-        try:
-            await scan_symbols()
-        except Exception as e:
-            logger.error(f"Error in run_bot: {e}")
-        await asyncio.sleep(60)
-
-# ایپ کے شروع ہوتے ہی بوٹ اسٹارٹ
-@app.on_event("startup")
-async def start_bot():
-    global bot_task
-    bot_task = asyncio.ensure_future(run_bot())  # task reference محفوظ رکھیں
-
-if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+        log(f"[{symbol}] Fatal error: {str(e)}", level="ERROR")
+        return None
