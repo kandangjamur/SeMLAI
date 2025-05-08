@@ -2,8 +2,9 @@ import pandas as pd
 import asyncio
 from core.indicators import calculate_indicators
 from core.candle_patterns import is_bullish_engulfing, is_bearish_engulfing, is_doji
+from core.backtest import get_tp1_hit_rate
 from utils.support_resistance import detect_breakout
-from model.predictor import predict_confidence
+from models.predictor import predict_confidence
 from utils.logger import log
 
 async def analyze_symbol(exchange, symbol):
@@ -91,11 +92,10 @@ async def analyze_symbol(exchange, symbol):
                 continue
 
             # ML-based confidence
-            # فیچر نیمز کے ساتھ ڈیٹا تیار کرو تاکہ sklearn وارننگ نہ آئے
             features = df[["rsi", "macd", "macd_signal", "close", "volume"]].iloc[-1:].copy()
-            ml_confidence = await predict_confidence(features)
+            ml_confidence = await predict_confidence(symbol, features)
             log(f"[{symbol}] ML Confidence: {ml_confidence:.2%}")
-            confidence = min(confidence + ml_confidence * 50, 100)  # ML کا وزن کم کیا
+            confidence = min(confidence + ml_confidence * 0.5, 100)  # ML وزن کم کیا
 
             # ڈائریکشن چیک
             if direction not in ["LONG", "SHORT"]:
@@ -105,9 +105,9 @@ async def analyze_symbol(exchange, symbol):
             # ملٹی ٹائم فریم ایگریمنٹ کے لیے ڈائریکشن سٹور کرو
             timeframe_directions[timeframe] = direction
 
-            # TP1 امکان کیلکولیٹ کرو (ML کنفیڈنس + ڈمی تاریخی ہٹ ریٹ)
-            historical_hit_rate = 0.7  # فرضی، اصل میں بیک ٹیسٹ ڈیٹا سے لے سکتے ہو
-            tp1_possibility = min(ml_confidence + historical_hit_rate - 0.2, 0.95)
+            # TP1 امکان کیلکولیٹ کرو (ML کنفیڈنس + بیک ٹیسٹ ہٹ ریٹ)
+            backtest_hit_rate = get_tp1_hit_rate(symbol, timeframe)
+            tp1_possibility = min(ml_confidence * 0.5 + backtest_hit_rate * 0.5, 0.95)
 
             # ٹائم فریم کی بنیاد پر TP/SL ایڈجسٹ کرو
             current_price = latest["close"]
@@ -155,7 +155,6 @@ async def analyze_symbol(exchange, symbol):
         for signal in signals:
             tf = signal["timeframe"]
             direction = signal["direction"]
-            # چیک کرو کہ کم از کم ایک اور ٹائم فریم میں وہی ڈائریکشن ہو
             other_tfs = [t for t in timeframe_directions if t != tf]
             has_agreement = any(timeframe_directions.get(other_tf) == direction for other_tf in other_tfs)
             if has_agreement:
@@ -167,7 +166,7 @@ async def analyze_symbol(exchange, symbol):
             log(f"[{symbol}] No signals with multi-timeframe agreement", level="ERROR")
             return None
 
-        # بہترین سگنل چنو (سب سے زیادہ کنفیڈنس)
+        # بہترین سگنل چنو
         best_signal = max(valid_signals, key=lambda x: x["confidence"])
         log(f"[{symbol}] Best signal selected: {best_signal['direction']} for {best_signal['timeframe']}, Confidence: {best_signal['confidence']:.2%}")
         return best_signal
