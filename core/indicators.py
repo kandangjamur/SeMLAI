@@ -26,23 +26,12 @@ def calculate_indicators(df):
         
         # ATR
         df["atr"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], window=14, fillna=True).average_true_range()
-        
-        # Ichimoku Cloud
-        df["ichimoku_a"] = ta.trend.IchimokuIndicator(df["high"], df["low"], window1=9, window2=26, window3=52, fillna=True).ichimoku_a()
-        df["ichimoku_b"] = ta.trend.IchimokuIndicator(df["high"], df["low"], window1=9, window2=26, window3=52, fillna=True).ichimoku_b()
-        
-        # OBV
-        df["obv"] = ta.volume.OnBalanceVolumeIndicator(df["close"], df["volume"], fillna=True).on_balance_volume()
-        
-        # Simple Moving Average
-        df["sma"] = ta.trend.SMAIndicator(df["close"], window=9, fillna=True).sma_indicator()
 
-        if df.isna().any().any() or df.isin([np.inf, -np.inf]).any().any():
-            log("NaN or Inf values in indicators", level='WARNING')
-            return None
+        # Moving Averages
+        df["sma_50"] = ta.trend.SMAIndicator(df["close"], window=50, fillna=True).sma_indicator()
+        df["sma_200"] = ta.trend.SMAIndicator(df["close"], window=200, fillna=True).sma_indicator()
 
-        log(f"Indicators calculated for {len(df)} rows")
         return df
     except Exception as e:
-        log(f"Error calculating indicators: {e}", level='ERROR')
+        log(f"Error in calculate_indicators: {str(e)}", level="ERROR")
         return None
