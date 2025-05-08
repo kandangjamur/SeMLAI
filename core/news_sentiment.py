@@ -1,16 +1,15 @@
-import asyncio
 from utils.logger import log
 
-async def fetch_sentiment(symbol):
+def fetch_sentiment(symbol):
     try:
-        # Temporary dummy sentiment data due to News API rate limit (429 error)
+        # Temporary dummy sentiment data due to News API rate limit
         log(f"Fetching dummy sentiment for {symbol} (News API rate limit exceeded)", level='INFO')
         return {'score': 0.0, 'magnitude': 0.0}
     except Exception as e:
         log(f"Unexpected error in fetch_sentiment for {symbol}: {e}", level='ERROR')
         return None
 
-async def adjust_confidence(confidence, sentiment, *args):
+def adjust_confidence(confidence, sentiment, *args):
     try:
         # Handle extra arguments gracefully
         if args:
