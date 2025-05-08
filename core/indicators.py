@@ -5,7 +5,7 @@ from utils.logger import log
 
 def calculate_indicators(df):
     try:
-        if len(df) < 50 or df['close'].std() <= 0:
+        if len(df) < 30 or df['close'].std() <= 0:
             log("Insufficient data for indicators", level='WARNING')
             return None
 
@@ -34,11 +34,8 @@ def calculate_indicators(df):
         # OBV
         df["obv"] = ta.volume.OnBalanceVolumeIndicator(df["close"], df["volume"], fillna=True).on_balance_volume()
         
-        # Simple Moving Average (instead of HMA)
+        # Simple Moving Average
         df["sma"] = ta.trend.SMAIndicator(df["close"], window=9, fillna=True).sma_indicator()
-        
-        # Stochastic RSI
-        df["stoch_rsi"] = ta.momentum.StochasticRSIIndicator(df["close"], window=14, smooth1=3, smooth2=3, fillna=True).stochrsi_k()
 
         if df.isna().any().any() or df.isin([np.inf, -np.inf]).any().any():
             log("NaN or Inf values in indicators", level='WARNING')
