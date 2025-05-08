@@ -1,19 +1,33 @@
 import pandas as pd
 import asyncio
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks
 from core.indicators import calculate_indicators
 from core.candle_patterns import is_bullish_engulfing, is_bearish_engulfing, is_doji
 from data.backtest import get_tp1_hit_rate
 from utils.support_resistance import detect_breakout
 from model.predictor import predict_confidence
 from utils.logger import log
+import logging
+from logging.handlers import RotatingFileHandler
 
 # FastAPI app initialization
 app = FastAPI()
 
+# Setting up logging
+logger = logging.getLogger()
+handler = RotatingFileHandler('app.log', maxBytes=5 * 1024 * 1024, backupCount=3)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
 @app.get("/")
 async def read_root():
     return {"message": "Crypto Signal Bot Running!"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
 
 async def fetch_ohlcv_safe(exchange, symbol, timeframe, retries=3):
     for _ in range(retries):
@@ -22,6 +36,7 @@ async def fetch_ohlcv_safe(exchange, symbol, timeframe, retries=3):
             if ohlcv and len(ohlcv) >= 20:
                 return ohlcv
         except Exception as e:
+            log(f"Error fetching OHLCV for {symbol} on {timeframe}: {e}", level="ERROR")
             await asyncio.sleep(0.5)
     return None
 
@@ -97,7 +112,7 @@ async def analyze_symbol(exchange, symbol):
                 confidence -= 15
 
             # Breakout
-            breakout = detect_breakout(df)  # Fixed: Pass `df` here
+            breakout = detect_breakout(df)
             if breakout == "up" and direction in [None, "LONG"]:
                 direction = "LONG"
                 confidence += 20
@@ -112,8 +127,13 @@ async def analyze_symbol(exchange, symbol):
                 continue
 
             # ML Prediction
-            features = df[["rsi", "macd", "macd_signal", "close", "volume"]].iloc[-1:].copy()
-            ml_conf = await predict_confidence(symbol, features)
+            try:
+                features = df[["rsi", "macd", "macd_signal", "close", "volume"]].iloc[-1:].copy()
+                ml_conf = await predict_confidence(symbol, features)
+            except Exception as e:
+                log(f"[{symbol}] ML prediction failed: {e}", level="ERROR")
+                ml_conf = 0  # Fallback to 0 if prediction fails
+
             log(f"[{symbol}] ML confidence for {timeframe}: {ml_conf:.2%}")
             confidence = min(confidence + ml_conf * 0.5, 100)
 
@@ -191,4 +211,4 @@ async def analyze_symbol(exchange, symbol):
 # Run the FastAPI app (if running in a local or production environment)
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, workers=4)  # Added 4 workers for better concurrency
