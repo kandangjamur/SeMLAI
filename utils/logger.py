@@ -2,7 +2,8 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
-import polars as pl
+import pandas as pd
+import pytz
 import shutil
 
 LOG_DIR = "logs"
@@ -40,7 +41,7 @@ def log_signal_to_csv(signal):
     try:
         csv_path = "logs/signals_log.csv"
         timestamp = datetime.fromtimestamp(signal.get("timestamp", 0) / 1000).strftime('%Y-%m-%d %H:%M:%S')
-        data = pl.DataFrame({
+        data = pd.DataFrame({
             "symbol": [signal.get("symbol", "")],
             "price": [signal.get("price", 0)],
             "direction": [signal.get("direction", "")],
@@ -61,12 +62,12 @@ def log_signal_to_csv(signal):
         })
 
         if os.path.exists(csv_path):
-            old_df = pl.read_csv(csv_path)
-            if not data.is_empty():
-                data = old_df.vstack(data)
+            old_df = pd.read_csv(csv_path)
+            if not data.empty:
+                data = pd.concat([old_df, data], ignore_index=True)
 
-        if not data.is_empty():
-            data.write_csv(csv_path)
+        if not data.empty:
+            data.to_csv(csv_path, index=False)
             log(f"Signal logged to CSV for {signal.get('symbol', '')}")
         else:
             log("No valid data to log to CSV", level='ERROR')
@@ -81,20 +82,21 @@ def archive_old_logs(csv_path):
     try:
         if not os.path.exists(csv_path):
             return
-        df = pl.read_csv(csv_path)
-        if df.is_empty():
+        df = pd.read_csv(csv_path)
+        if df.empty:
             return
         
         current_date = datetime.now(pytz.timezone('Asia/Karachi'))
         week_ago = current_date - pd.Timedelta(days=7)
-        old_data = df.filter(pl.col("timestamp").cast(pl.DateTime).dt.date() < week_ago.date())
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+        old_data = df[df['timestamp'].dt.date < week_ago.date()]
         
-        if not old_data.is_empty():
+        if not old_data.empty:
             archive_path = f"logs/archive/signals_log_{week_ago.strftime('%Y%m%d')}.csv"
             os.makedirs(os.path.dirname(archive_path), exist_ok=True)
-            old_data.write_csv(archive_path)
-            new_data = df.filter(pl.col("timestamp").cast(pl.DateTime).dt.date() >= week_ago.date())
-            new_data.write_csv(csv_path)
+            old_data.to_csv(archive_path, index=False)
+            new_data = df[df['timestamp'].dt.date >= week_ago.date()]
+            new_data.to_csv(csv_path, index=False)
             log(f"Archived {len(old_data)} old signals to {archive_path}", level='INFO')
     except Exception as e:
         log(f"Error archiving logs: {e}", level='ERROR')
