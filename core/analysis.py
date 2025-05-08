@@ -94,7 +94,7 @@ async def analyze_symbol(exchange, symbol):
                     tp1 = fib_levels["0.382"].iloc[-1] if direction == "LONG" else fib_levels["-0.382"].iloc[-1]
                     tp2 = fib_levels["0.618"].iloc[-1] if direction == "LONG" else fib_levels["-0.618"].iloc[-1]
                     tp3 = fib_levels["1.0"].iloc[-1] if direction == "LONG" else fib_levels["0.0"].iloc[-1]
-                    sl = fib_levels["0.0"].iloc[-1] if direction == "LONG" else fib_levels["0.236"].iloc[-1]  # Replaced '-0.236' with '0.0'
+                    sl = fib_levels["0.0"].iloc[-1] if direction == "LONG" else fib_levels["0.236"].iloc[-1]
 
                     # Ensure values are valid
                     tp1 = tp1 if pd.notna(tp1) else (current_price * 1.02 if direction == "LONG" else current_price * 0.98)
@@ -119,9 +119,11 @@ async def analyze_symbol(exchange, symbol):
                 "timestamp": df["timestamp"].iloc[-1]
             }
 
-            if direction and signal["confidence"] >= 60 and signal["tp1_possibility"] >= 80:
+            if direction and signal["confidence"] >= 60 and signal["tp1_possibility"] >= 70:  # Relaxed from 80 to 70
                 signals.append(signal)
                 log(f"[{symbol}] Signal for {timeframe}: {signal['direction']}, Confidence: {signal['confidence']}%")
+            else:
+                log(f"[{symbol}] Signal rejected for {timeframe}: direction={direction}, confidence={signal['confidence']}, tp1_possibility={signal['tp1_possibility']}", level='WARNING')
 
         if not signals:
             log(f"[{symbol}] No valid signals for any timeframe", level='ERROR')
