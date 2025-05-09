@@ -40,7 +40,7 @@ async def analyze_symbol(exchange: ccxt.Exchange, symbol: str, timeframe: str = 
         log(f"[{symbol}] TP hit rates - TP1: {tp1_hit_rate:.2%}, TP2: {tp2_hit_rate:.2%}, TP3: {tp3_hit_rate:.2%}")
 
         # Predict signal
-        signal = predictor.predict_signal(symbol, df, timeframe)
+        signal = await predictor.predict_signal(symbol, df, timeframe)
         if not signal:
             log(f"[{symbol}] No valid signal generated")
             return None
