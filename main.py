@@ -11,26 +11,26 @@ import telegram
 from utils.support_resistance import find_support_resistance
 from utils.logger import log
 
-# لاگنگ سیٹ اپ
+# Logging setup
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("scanner")
 
-# .env فائل سے ماحولیاتی ویری ایبل لوڈ کرو
+# Load environment variables
 load_dotenv()
 
-# FastAPI ایپ
+# FastAPI app
 app = FastAPI()
 
-# سگنل کی حدیں
-CONFIDENCE_THRESHOLD = 20  # نارمل سگنل کے لیے کم از کم 20%
-TP1_POSSIBILITY_THRESHOLD = 0.4  # TP1 امکان کم از کم 40%
-SCALPING_CONFIDENCE_THRESHOLD = 50  # اس سے کم ہو تو Scalping Trade
+# Signal thresholds
+CONFIDENCE_THRESHOLD = 75  # Minimum 75% for normal signals
+TP1_POSSIBILITY_THRESHOLD = 0.75  # Minimum 75% TP1 probability
+SCALPING_CONFIDENCE_THRESHOLD = 85  # Below this is Scalping Trade
 BACKTEST_FILE = "logs/signals_log.csv"
 
-# ٹیلیگرام پر میسج بھیجنے والا فنکشن
+# Send Telegram message
 async def send_telegram_message(message):
     try:
         bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -44,7 +44,7 @@ async def send_telegram_message(message):
     except Exception as e:
         logger.error(f"Error sending Telegram message: {e}")
 
-# سگنل کو CSV میں لکھنے والا فنکشن
+# Log signal to CSV
 def log_signal_to_csv(signal, trade_type, atr, leverage, support, resistance, midpoint, prediction):
     try:
         signal_data = {
@@ -64,12 +64,12 @@ def log_signal_to_csv(signal, trade_type, atr, leverage, support, resistance, mi
             "midpoint": (support + resistance) / 2 if support and resistance else 0.0,
             "prediction": signal["direction"],
             "tp1_possibility": signal["tp1_possibility"],
-            "tp2_possibility": signal["tp1_possibility"] * 0.8,
-            "tp3_possibility": signal["tp1_possibility"] * 0.6,
-            "status": "open"  # ڈیفالٹ طور پر open
+            "tp2_possibility": signal["tp2_possibility"],
+            "tp3_possibility": signal["tp3_possibility"],
+            "status": "open"  # Default status
         }
         df = pd.DataFrame([signal_data])
-        # فائل میں اپینڈ کرو
+        # Append to file
         if not os.path.exists(BACKTEST_FILE):
             df.to_csv(BACKTEST_FILE, index=False)
         else:
@@ -78,17 +78,17 @@ def log_signal_to_csv(signal, trade_type, atr, leverage, support, resistance, mi
     except Exception as e:
         logger.error(f"Error logging signal to CSV: {e}")
 
-# روٹ ہیلتھ چیک
+# Health check route
 @app.get("/")
 async def root():
     return {"message": "Crypto Signal Bot is running."}
 
-# Koyeb کے لیے ہیلتھ چیک
+# Health check for Koyeb
 @app.get("/health")
 async def health():
     return {"status": "healthy", "message": "Bot is operational."}
 
-# تمام USDT پیئرز حاصل کرو
+# Get all USDT pairs
 async def get_valid_symbols(exchange):
     try:
         markets = await exchange.load_markets()
@@ -101,7 +101,7 @@ async def get_valid_symbols(exchange):
     finally:
         await exchange.close()
 
-# سگنل سکین فنکشن
+# Scan symbols for signals
 async def scan_symbols():
     exchange = ccxt.binance({
         'apiKey': os.getenv("BINANCE_API_KEY"),
@@ -116,7 +116,7 @@ async def scan_symbols():
         return
 
     try:
-        # کنکشن ٹیسٹ
+        # Test connection
         try:
             await exchange.fetch_ticker('BTC/USDT')
             logger.info("Binance API connection successful.")
@@ -124,7 +124,7 @@ async def scan_symbols():
             logger.error(f"Binance API connection failed: {e}")
             return
 
-        # تمام USDT symbols حاصل کرو
+        # Get all USDT symbols
         symbols = await get_valid_symbols(exchange)
         if not symbols:
             logger.error("No valid USDT symbols found!")
@@ -148,7 +148,7 @@ async def scan_symbols():
                 )
 
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
-                    # سپورٹ/ریزسٹنس اور دیگر میٹرکس کیلکولیٹ کرو
+                    # Calculate support/resistance and other metrics
                     ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=100)
                     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
                     df = find_support_resistance(df)
@@ -162,15 +162,15 @@ async def scan_symbols():
                         f"Trade Type: {trade_type}\n"
                         f"Direction: {direction}\n"
                         f"Entry: {result['entry']:.2f}\n"
-                        f"TP1: {result['tp1']:.2f}\n"
-                        f"TP2: {result['tp2']:.2f}\n"
-                        f"TP3: {result['tp3']:.2f}\n"
+                        f"TP1: {result['tp1']:.2f} ({result['tp1_possibility']*100:.2f}%)\n"
+                        f"TP2: {result['tp2']:.2f} ({result['tp2_possibility']*100:.2f}%)\n"
+                        f"TP3: {result['tp3']:.2f} ({result['tp3_possibility']*100:.2f}%)\n"
                         f"SL: {result['sl']:.2f}\n"
-                        f"Confidence: {confidence:.2f}\n"
-                        f"TP1 Possibility: {tp1_possibility:.2f}"
+                        f"Confidence: {confidence:.2f}%\n"
+                        f"TP1 Possibility: {tp1_possibility*100:.2f}%"
                     )
                     await send_telegram_message(message)
-                    # سگنل کو CSV میں لکھو
+                    # Log signal to CSV
                     log_signal_to_csv(result, trade_type, atr, leverage, support, resistance, (support + resistance) / 2, direction)
                     logger.info("✅ Signal SENT ✅")
                 elif confidence < CONFIDENCE_THRESHOLD:
@@ -188,20 +188,20 @@ async def scan_symbols():
     finally:
         await exchange.close()
 
-# مسلسل سکینر چلانے والا فنکشن
+# Continuous scanner
 async def run_bot():
     while True:
         try:
             await scan_symbols()
         except Exception as e:
             logger.error(f"Error in run_bot: {e}")
-        await asyncio.sleep(60)  # ہر 60 سیکنڈ بعد دوبارہ سکین کرو
+        await asyncio.sleep(60)  # Scan every 60 seconds
 
-# جب ایپ اسٹارٹ ہو تو سکینر چلاؤ
+# Start scanner on app startup
 @app.on_event("startup")
 async def start_bot():
     asyncio.create_task(run_bot())
 
-# ایپ رن کرو
+# Run app
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000)
