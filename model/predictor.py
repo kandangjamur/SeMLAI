@@ -168,7 +168,8 @@ class Predictor:
                 'tp3': tp3,
                 'tp1_possibility': tp1_prob,
                 'tp2_possibility': tp2_prob,
-                'tp3_possibility': tp3_prob
+                'tp3_possibility': tp3_prob,
+                'timeframe': timeframe
             }
         except Exception as e:
             log(f"[{symbol}] Error in predict_signal: {e}", level='ERROR')
