@@ -29,6 +29,7 @@ CONFIDENCE_THRESHOLD = 70  # Reduced to 70% for more signals
 TP1_POSSIBILITY_THRESHOLD = 0.65  # Reduced to 65% for more signals
 SCALPING_CONFIDENCE_THRESHOLD = 85  # Below this is Scalping Trade
 BACKTEST_FILE = "logs/signals_log.csv"
+MIN_VOLUME_USD = 500000  # Minimum 24h volume in USD to filter low-volume symbols
 
 # Send Telegram message
 async def send_telegram_message(message):
@@ -88,18 +89,25 @@ async def root():
 async def health():
     return {"status": "healthy", "message": "Bot is operational."}
 
-# Get top USDT pairs with high TP1 hit rates
+# Get USDT pairs with sufficient volume
 async def get_valid_symbols(exchange):
     try:
         markets = await exchange.load_markets()
-        top_symbols = [
-            "BNB/USDT", "ETH/USDT", "NEO/USDT", "ADA/USDT", "XRP/USDT",
-            "LTC/USDT", "QTUM/USDT", "ETC/USDT", "TRX/USDT", "VET/USDT",
-            "XLM/USDT", "ONT/USDT"
-        ]
-        usdt_symbols = [s for s in top_symbols if s in markets.keys()]
-        logger.info(f"Selected {len(usdt_symbols)} top USDT pairs")
-        return usdt_symbols
+        usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT')]
+        valid_symbols = []
+        
+        for symbol in usdt_symbols:
+            try:
+                ticker = await exchange.fetch_ticker(symbol)
+                volume_usd = ticker.get('quoteVolume', 0)
+                if volume_usd >= MIN_VOLUME_USD:
+                    valid_symbols.append(symbol)
+            except Exception as e:
+                logger.error(f"Error fetching ticker for {symbol}: {e}")
+                continue
+        
+        logger.info(f"Selected {len(valid_symbols)} USDT pairs with volume >= ${MIN_VOLUME_USD}")
+        return valid_symbols
     except Exception as e:
         logger.error(f"Error fetching symbols: {e}")
         return []
@@ -129,7 +137,7 @@ async def scan_symbols():
             logger.error(f"Binance API connection failed: {e}")
             return
 
-        # Get top USDT symbols
+        # Get valid USDT symbols
         symbols = await get_valid_symbols(exchange)
         if not symbols:
             logger.error("No valid USDT symbols found!")
