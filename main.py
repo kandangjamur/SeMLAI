@@ -50,11 +50,11 @@ async def root():
 async def health():
     return {"status": "healthy", "message": "Bot is operational."}
 
-# صرف USDT پیئرز حاصل کرو
+# تمام USDT پیئرز حاصل کرو
 async def get_valid_symbols(exchange):
     try:
         markets = await exchange.load_markets()
-        usdt_symbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'ADA/USDT', 'XRP/USDT']  # محدود سمبلز
+        usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT')]
         logger.info(f"Found {len(usdt_symbols)} USDT pairs")
         return usdt_symbols
     except Exception as e:
@@ -109,7 +109,7 @@ async def scan_symbols():
                     f"Direction: {direction} | TP1 Chance: {tp1_possibility:.2f}"
                 )
 
-                if confidence >= CONFIDENCE_WEIGHT and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
+                if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
                     message = (
                         f"🚀 {symbol}\n"
                         f"Trade Type: {trade_type}\n"
