@@ -11,7 +11,6 @@ async def analyze_symbol(exchange, symbol):
     try:
         timeframes = ["15m", "1h", "4h", "1d"]
         signals = []
-        timeframe_directions = {}
 
         for timeframe in timeframes:
             ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)
@@ -93,7 +92,11 @@ async def analyze_symbol(exchange, symbol):
 
             # ML-based confidence
             features = df[["rsi", "macd", "macd_signal", "close", "volume"]].iloc[-1:].copy()
-            ml_confidence = await predict_confidence(symbol, features)
+            if features.dropna().empty:
+                log(f"[{symbol}] Insufficient data for feature preparation", level="WARNING")
+                ml_confidence = 0.5  # ڈیفالٹ کنفیڈنس
+            else:
+                ml_confidence = predict_confidence(symbol, features)  # await ہٹایا کیونکہ یہ async نہیں
             log(f"[{symbol}] ML Confidence: {ml_confidence:.2%}")
             confidence = min(confidence + ml_confidence * 0.5, 100)
 
@@ -101,9 +104,6 @@ async def analyze_symbol(exchange, symbol):
             if direction not in ["LONG", "SHORT"]:
                 log(f"[{symbol}] Signal rejected for {timeframe}: direction=None, confidence={confidence:.1f}")
                 continue
-
-            # ملٹی ٹائم فریم ایگریمنٹ
-            timeframe_directions[timeframe] = direction
 
             # TP1 امکان
             backtest_hit_rate = get_tp1_hit_rate(symbol, timeframe)
@@ -150,24 +150,8 @@ async def analyze_symbol(exchange, symbol):
             log(f"[{symbol}] No valid signals for any timeframe", level="ERROR")
             return None
 
-        # ملٹی ٹائم فریم ایگریمنٹ چیک
-        valid_signals = []
-        for signal in signals:
-            tf = signal["timeframe"]
-            direction = signal["direction"]
-            other_tfs = [t for t in timeframe_directions if t != tf]
-            has_agreement = any(timeframe_directions.get(other_tf) == direction for other_tf in other_tfs)
-            if has_agreement:
-                valid_signals.append(signal)
-            else:
-                log(f"[{symbol}] Signal rejected for {tf}: no multi-timeframe agreement")
-
-        if not valid_signals:
-            log(f"[{symbol}] No signals with multi-timeframe agreement", level="ERROR")
-            return None
-
         # بہترین سگنل
-        best_signal = max(valid_signals, key=lambda x: x["confidence"])
+        best_signal = max(signals, key=lambda x: x["confidence"])
         log(f"[{symbol}] Best signal selected: {best_signal['direction']} for {best_signal['timeframe']}, Confidence: {best_signal['confidence']:.2%}")
         return best_signal
 
