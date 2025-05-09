@@ -1,11 +1,11 @@
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-import joblib
+from joblib import dump
 import os
 from core.candle_patterns import (
-    bullish_engulfing, bearish_engulfing, doji, hammer, shooting_star,
-    three_white_soldiers, three_black_crows
+    is_bullish_engulfing, is_bearish_engulfing, is_doji, is_hammer, is_shooting_star,
+    is_three_white_soldiers, is_three_black_crows
 )
 from data.backtest import get_tp_hit_rates
 from utils.logger import log
@@ -51,13 +51,13 @@ class SignalPredictor:
             feature_df["volume_sma_20"] = df["volume"].rolling(window=20).mean().fillna(0.0)
             
             # Candlestick patterns
-            feature_df["bullish_engulfing"] = bullish_engulfing(df).astype(float)
-            feature_df["bearish_engulfing"] = bearish_engulfing(df).astype(float)
-            feature_df["doji"] = doji(df).astype(float)
-            feature_df["hammer"] = hammer(df).astype(float)
-            feature_df["shooting_star"] = shooting_star(df).astype(float)
-            feature_df["three_white_soldiers"] = three_white_soldiers(df).astype(float)
-            feature_df["three_black_crows"] = three_black_crows(df).astype(float)
+            feature_df["bullish_engulfing"] = is_bullish_engulfing(df).astype(float)
+            feature_df["bearish_engulfing"] = is_bearish_engulfing(df).astype(float)
+            feature_df["doji"] = is_doji(df).astype(float)
+            feature_df["hammer"] = is_hammer(df).astype(float)
+            feature_df["shooting_star"] = is_shooting_star(df).astype(float)
+            feature_df["three_white_soldiers"] = is_three_white_soldiers(df).astype(float)
+            feature_df["three_black_crows"] = is_three_black_crows(df).astype(float)
             
             # Ensure all expected features are present
             for feature in self.features:
@@ -132,16 +132,13 @@ class SignalPredictor:
                 return None
                 
             # Predict
-            current_features = features.iloc[-1].values.reshape(1, -1)
+            current_features = features.iloc[-1:].reindex(columns=self.features)
             prediction_proba = self.model.predict_proba(current_features)[0]
             prediction = self.model.predict(current_features)[0]
             
             # Determine direction and confidence
             direction = "LONG" if prediction == 1 else "SHORT"
-            confidence = max(prediction_proba) * 100
-            
-            # Normalize confidence to 0-95%
-            confidence = min(max(confidence, 0), 0.95) * 100
+            confidence = min(max(prediction_proba.max() * 100, 0), 95)
             
             if confidence < self.min_confidence_threshold * 100:
                 log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
