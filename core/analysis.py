@@ -18,8 +18,8 @@ async def analyze_symbol(exchange, symbol):
             df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
-            # سخت والیوم چیک
-            if len(df) < 20 or df["volume"].mean() < 50_000:
+            # ہلکا والیوم چیک
+            if df["volume"].mean() < 10_000:
                 log(f"[{symbol}] Insufficient data or low volume for {timeframe}")
                 continue
 
@@ -36,32 +36,30 @@ async def analyze_symbol(exchange, symbol):
             confidence = 0.0
             indicator_count = 0
 
-            # RSI-based signals
-            if df.loc[latest_idx, "rsi"] < 25:
+            # RSI-based signals (ہلکا تھریش ہولڈ)
+            if df.loc[latest_idx, "rsi"] < 30:
                 direction = "LONG"
                 confidence += 30
                 indicator_count += 1
-            elif df.loc[latest_idx, "rsi"] > 75:
+            elif df.loc[latest_idx, "rsi"] > 70:
                 direction = "SHORT"
                 confidence += 30
                 indicator_count += 1
 
-            # MACD-based signals
+            # MACD-based signals (ہلکا چیک)
             macd_hist = df.loc[latest_idx, "macd"] - df.loc[latest_idx, "macd_signal"]
-            if df.loc[latest_idx, "macd"] > df.loc[latest_idx, "macd_signal"] and \
-               df.loc[second_latest_idx, "macd"] <= df.loc[second_latest_idx, "macd_signal"] and macd_hist > 0:
+            if df.loc[latest_idx, "macd"] > df.loc[latest_idx, "macd_signal"] and macd_hist > 0:
                 if direction == "LONG" or direction is None:
                     direction = "LONG"
                     confidence += 25
                     indicator_count += 1
-            elif df.loc[latest_idx, "macd"] < df.loc[latest_idx, "macd_signal"] and \
-                 df.loc[second_latest_idx, "macd"] >= df.loc[second_latest_idx, "macd_signal"] and macd_hist < 0:
+            elif df.loc[latest_idx, "macd"] < df.loc[latest_idx, "macd_signal"] and macd_hist < 0:
                 if direction == "SHORT" or direction is None:
                     direction = "SHORT"
                     confidence += 25
                     indicator_count += 1
 
-            # کینڈل پیٹرن (پوری ڈیٹا فریم استعمال کرو)
+            # کینڈل پیٹرن (ہلکا والیوم چیک)
             if is_bullish_engulfing(df.loc[:latest_idx]) and df.loc[latest_idx, "volume"] > df.loc[second_latest_idx, "volume"] * 1.2:
                 if direction == "LONG" or direction is None:
                     direction = "LONG"
@@ -73,7 +71,7 @@ async def analyze_symbol(exchange, symbol):
                     confidence += 20
                     indicator_count += 1
             elif is_doji(df.loc[:latest_idx]):
-                confidence -= 15
+                confidence -= 10
 
             # بریک آؤٹ ڈیٹیکشن
             breakout = detect_breakout(symbol, df)
@@ -88,8 +86,8 @@ async def analyze_symbol(exchange, symbol):
                     confidence += 20
                     indicator_count += 1
 
-            # کم از کم 2 انڈیکیٹرز
-            if indicator_count < 2:
+            # کم از کم 1 انڈیکیٹر
+            if indicator_count < 1:
                 log(f"[{symbol}] Signal rejected for {timeframe}: insufficient indicators ({indicator_count})")
                 continue
 
