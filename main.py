@@ -5,8 +5,11 @@ from core.analysis import analyze_symbol
 import ccxt.async_support as ccxt
 import os
 import logging
+import pandas as pd
 from dotenv import load_dotenv
 import telegram
+from utils.support_resistance import find_support_resistance
+from utils.logger import log
 
 # لاگنگ سیٹ اپ
 logging.basicConfig(
@@ -22,9 +25,10 @@ load_dotenv()
 app = FastAPI()
 
 # سگنل کی حدیں
-CONFIDENCE_THRESHOLD = 40  # نارمل سگنل کے لیے کم از کم 40%
-TP1_POSSIBILITY_THRESHOLD = 0.6  # TP1 امکان کم از کم 60%
-SCALPING_CONFIDENCE_THRESHOLD = 65  # اس سے کم ہو تو Scalping Trade
+CONFIDENCE_THRESHOLD = 20  # نارمل سگنل کے لیے کم از کم 20%
+TP1_POSSIBILITY_THRESHOLD = 0.4  # TP1 امکان کم از کم 40%
+SCALPING_CONFIDENCE_THRESHOLD = 50  # اس سے کم ہو تو Scalping Trade
+BACKTEST_FILE = "logs/signals_log.csv"
 
 # ٹیلیگرام پر میسج بھیجنے والا فنکشن
 async def send_telegram_message(message):
@@ -39,6 +43,40 @@ async def send_telegram_message(message):
         logger.info("Telegram message sent successfully.")
     except Exception as e:
         logger.error(f"Error sending Telegram message: {e}")
+
+# سگنل کو CSV میں لکھنے والا فنکشن
+def log_signal_to_csv(signal, trade_type, atr, leverage, support, resistance, midpoint, prediction):
+    try:
+        signal_data = {
+            "symbol": signal["symbol"],
+            "price": signal["entry"],
+            "confidence": signal["confidence"],
+            "trade_type": trade_type,
+            "timestamp": pd.Timestamp.now().isoformat(),
+            "tp1": signal["tp1"],
+            "tp2": signal["tp2"],
+            "tp3": signal["tp3"],
+            "sl": signal["sl"],
+            "atr": atr,
+            "leverage": leverage,
+            "support": support,
+            "resistance": resistance,
+            "midpoint": (support + resistance) / 2 if support and resistance else 0.0,
+            "prediction": signal["direction"],
+            "tp1_possibility": signal["tp1_possibility"],
+            "tp2_possibility": signal["tp1_possibility"] * 0.8,
+            "tp3_possibility": signal["tp1_possibility"] * 0.6,
+            "status": "open"  # ڈیفالٹ طور پر open
+        }
+        df = pd.DataFrame([signal_data])
+        # فائل میں اپینڈ کرو
+        if not os.path.exists(BACKTEST_FILE):
+            df.to_csv(BACKTEST_FILE, index=False)
+        else:
+            df.to_csv(BACKTEST_FILE, mode='a', header=False, index=False)
+        logger.info(f"Signal logged to {BACKTEST_FILE}")
+    except Exception as e:
+        logger.error(f"Error logging signal to CSV: {e}")
 
 # روٹ ہیلتھ چیک
 @app.get("/")
@@ -110,6 +148,15 @@ async def scan_symbols():
                 )
 
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
+                    # سپورٹ/ریزسٹنس اور دیگر میٹرکس کیلکولیٹ کرو
+                    ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=100)
+                    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
+                    df = find_support_resistance(df)
+                    support = df["support"].iloc[-1] if "support" in df else 0.0
+                    resistance = df["resistance"].iloc[-1] if "resistance" in df else 0.0
+                    atr = (df["high"] - df["low"]).rolling(window=14).mean().iloc[-1]
+                    leverage = 10 if trade_type == "Scalping" else 5
+
                     message = (
                         f"🚀 {symbol}\n"
                         f"Trade Type: {trade_type}\n"
@@ -123,6 +170,8 @@ async def scan_symbols():
                         f"TP1 Possibility: {tp1_possibility:.2f}"
                     )
                     await send_telegram_message(message)
+                    # سگنل کو CSV میں لکھو
+                    log_signal_to_csv(result, trade_type, atr, leverage, support, resistance, (support + resistance) / 2, direction)
                     logger.info("✅ Signal SENT ✅")
                 elif confidence < CONFIDENCE_THRESHOLD:
                     logger.info("⚠️ Skipped - Low confidence")
