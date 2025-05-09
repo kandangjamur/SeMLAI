@@ -18,7 +18,7 @@ async def analyze_symbol(exchange, symbol):
             df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
 
             # ہلکا والیوم چیک
-            if df["volume"].mean() < 10_000:
+            if df["volume"].mean() < 1_000:
                 log(f"[{symbol}] Insufficient data or low volume for {timeframe}")
                 continue
 
@@ -96,9 +96,12 @@ async def analyze_symbol(exchange, symbol):
                 log(f"[{symbol}] Insufficient data for feature preparation", level="WARNING")
                 ml_confidence = 0.5  # ڈیفالٹ کنفیڈنس
             else:
-                ml_confidence = predict_confidence(symbol, features)  # await ہٹایا کیونکہ یہ async نہیں
+                ml_confidence = predict_confidence(symbol, df)  # df پاس کیا
+                ml_confidence = ml_confidence / 100  # فیصد سے 0-1 میں تبدیل
+                if ml_confidence == 0.0:
+                    ml_confidence = 0.5  # صفر سے بچاؤ
             log(f"[{symbol}] ML Confidence: {ml_confidence:.2%}")
-            confidence = min(confidence + ml_confidence * 50, 100)
+            confidence = min(confidence + ml_confidence * 50, 100)  # درست کیلکولیشن
 
             # ڈائریکشن چیک
             if direction not in ["LONG", "SHORT"]:
@@ -107,6 +110,9 @@ async def analyze_symbol(exchange, symbol):
 
             # TP1 امکان
             backtest_hit_rate = get_tp1_hit_rate(symbol, timeframe)
+            if backtest_hit_rate == 0.7:  # ڈیفالٹ ہٹ ریٹ کی صورت میں
+                log(f"[{symbol}] Using default TP1 hit rate: 0.75", level="INFO")
+                backtest_hit_rate = 0.75  # بہتر ڈیفالٹ
             tp1_possibility = min(ml_confidence * 0.5 + backtest_hit_rate * 0.5, 0.95)
 
             # TP/SL ایڈجسٹمنٹ
