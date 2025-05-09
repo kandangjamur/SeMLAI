@@ -25,11 +25,12 @@ load_dotenv()
 app = FastAPI()
 
 # Signal thresholds
-CONFIDENCE_THRESHOLD = 70  # Reduced to 70% for more signals
-TP1_POSSIBILITY_THRESHOLD = 0.65  # Reduced to 65% for more signals
+CONFIDENCE_THRESHOLD = 60  # Reduced to 60% for more signals
+TP1_POSSIBILITY_THRESHOLD = 0.65  # 65% for more signals
 SCALPING_CONFIDENCE_THRESHOLD = 85  # Below this is Scalping Trade
 BACKTEST_FILE = "logs/signals_log.csv"
-MIN_VOLUME_USD = 500000  # Minimum 24h volume in USD to filter low-volume symbols
+MIN_VOLUME_USD = 500000  # Minimum 24h volume in USD
+MAX_SYMBOLS = 100  # Limit to top 100 symbols by volume
 
 # Send Telegram message
 async def send_telegram_message(message):
@@ -89,22 +90,26 @@ async def root():
 async def health():
     return {"status": "healthy", "message": "Bot is operational."}
 
-# Get USDT pairs with sufficient volume
+# Get USDT pairs with sufficient volume, limited to top MAX_SYMBOLS
 async def get_valid_symbols(exchange):
     try:
         markets = await exchange.load_markets()
         usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT')]
-        valid_symbols = []
+        symbol_volumes = []
         
         for symbol in usdt_symbols:
             try:
                 ticker = await exchange.fetch_ticker(symbol)
                 volume_usd = ticker.get('quoteVolume', 0)
                 if volume_usd >= MIN_VOLUME_USD:
-                    valid_symbols.append(symbol)
+                    symbol_volumes.append((symbol, volume_usd))
             except Exception as e:
                 logger.error(f"Error fetching ticker for {symbol}: {e}")
                 continue
+        
+        # Sort by volume and select top MAX_SYMBOLS
+        symbol_volumes.sort(key=lambda x: x[1], reverse=True)
+        valid_symbols = [sym[0] for sym in symbol_volumes[:MAX_SYMBOLS]]
         
         logger.info(f"Selected {len(valid_symbols)} USDT pairs with volume >= ${MIN_VOLUME_USD}")
         return valid_symbols
@@ -198,7 +203,7 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
-                await asyncio.sleep(0.1)  # Delay to avoid API rate limits
+                await asyncio.sleep(0.2)  # Increased delay to avoid API rate limits
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
@@ -217,6 +222,7 @@ async def run_bot():
             await scan_symbols()
         except Exception as e:
             logger.error(f"Error in run_bot: {e}")
+            await asyncio.sleep(10)  # Short delay on error to prevent rapid looping
         await asyncio.sleep(60)  # Scan every 60 seconds
 
 # Start scanner on app startup
