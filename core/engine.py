@@ -86,22 +86,22 @@ async def run_engine():
             log(f"[Engine] [{symbol}] Analyzing symbol")
             try:
                 signal = await analyze_symbol(exchange, symbol)
-                if signal and signal["confidence"] >= 80 and signal["tp1_chance"] >= 75:
+                if signal and signal["confidence"] >= 75 and signal["tp1_possibility"] >= 0.75:
                     message = (
                         f"🚨 {signal['symbol']} Signal\n"
                         f"Timeframe: {signal['timeframe']}\n"
                         f"Direction: {signal['direction']}\n"
                         f"Price: {signal['price']:.4f}\n"
-                        f"Confidence: {signal['confidence']}%\n"
-                        f"TP1: {signal['tp1']:.4f} ({signal['tp1_chance']}%)\n"
-                        f"TP2: {signal['tp2']:.4f}\n"
-                        f"TP3: {signal['tp3']:.4f}\n"
+                        f"Confidence: {signal['confidence']:.2f}%\n"
+                        f"TP1: {signal['tp1']:.4f} ({signal['tp1_possibility']*100:.2f}%)\n"
+                        f"TP2: {signal['tp2']:.4f} ({signal['tp2_possibility']*100:.2f}%)\n"
+                        f"TP3: {signal['tp3']:.4f} ({signal['tp3_possibility']*100:.2f}%)\n"
                         f"SL: {signal['sl']:.4f}"
                     )
                     log(f"[Engine] [{symbol}] Signal generated, sending to Telegram")
                     try:
                         await bot.send_message(chat_id=os.getenv("TELEGRAM_CHAT_ID"), text=message)
-                        log(f"[Engine] [{symbol}] Signal sent: {signal['direction']}, Confidence: {signal['confidence']}%")
+                        log(f"[Engine] [{symbol}] Signal sent: {signal['direction']}, Confidence: {signal['confidence']:.2f}%")
                     except Exception as e:
                         log(f"[Engine] [{symbol}] Error sending Telegram message: {str(e)}", level='ERROR')
 
