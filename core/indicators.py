@@ -16,8 +16,9 @@ def calculate_indicators(df):
         df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14, fillna=True).rsi()
         
         # MACD
-        df["macd"] = ta.trend.MACD(df["close"], window_slow=26, window_fast=12, window_sign=9, fillna=True).macd()
-        df["macd_signal"] = ta.trend.MACD(df["close"], window_slow=26, window_fast=12, window_sign=9, fillna=True).macd_signal()
+        macd = ta.trend.MACD(df["close"], window_slow=26, window_fast=12, window_sign=9, fillna=True)
+        df["macd"] = macd.macd()
+        df["macd_signal"] = macd.macd_signal()
         
         # Bollinger Bands
         bb = ta.volatility.BollingerBands(df["close"], window=20, window_dev=2, fillna=True)
@@ -30,6 +31,22 @@ def calculate_indicators(df):
         # Moving Averages
         df["sma_50"] = ta.trend.SMAIndicator(df["close"], window=50, fillna=True).sma_indicator()
         df["sma_200"] = ta.trend.SMAIndicator(df["close"], window=200, fillna=True).sma_indicator()
+
+        # Handle NaN values explicitly
+        df.fillna({
+            "rsi": 50.0,
+            "macd": 0.0,
+            "macd_signal": 0.0,
+            "bb_upper": df["close"] * 1.02,
+            "bb_lower": df["close"] * 0.98,
+            "atr": df["atr"].mean() if not df["atr"].isna().all() else 0.0,
+            "sma_50": df["close"].mean() if not df["close"].isna().all() else 0.0,
+            "sma_200": df["close"].mean() if not df["close"].isna().all() else 0.0
+        }, inplace=True)
+
+        if df.isna().any().any():
+            log("NaN values detected after filling in indicators", level='WARNING')
+            return None
 
         return df
     except Exception as e:
