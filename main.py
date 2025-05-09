@@ -22,9 +22,9 @@ load_dotenv()
 app = FastAPI()
 
 # سگنل کی حدیں
-CONFIDENCE_THRESHOLD = 60  # نارمل سگنل کے لیے کم از کم 60%
-TP1_POSSIBILITY_THRESHOLD = 0.8  # TP1 امکان کم از کم 80%
-SCALPING_CONFIDENCE_THRESHOLD = 85  # اس سے کم ہو تو Scalping Trade
+CONFIDENCE_THRESHOLD = 50  # نارمل سگنل کے لیے کم از کم 50%
+TP1_POSSIBILITY_THRESHOLD = 0.7  # TP1 امکان کم از کم 70%
+SCALPING_CONFIDENCE_THRESHOLD = 75  # اس سے کم ہو تو Scalping Trade
 
 # ٹیلیگرام پر میسج بھیجنے والا فنکشن
 async def send_telegram_message(message):
