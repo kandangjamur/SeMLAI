@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
+import ccxt.async_support as ccxt
 from utils.logger import log
-from binance.client import AsyncClient
 
 async def get_tp_hit_rates(symbol: str, timeframe: str = None, backtest_file: str = "logs/signals_log.csv"):
     """
@@ -33,13 +33,19 @@ async def get_tp_hit_rates(symbol: str, timeframe: str = None, backtest_file: st
                 log(f"[{symbol}] TP1 hit rate: {tp1_rate:.2%}, TP2: {tp2_rate:.2%}, TP3: {tp3_rate:.2%}")
                 return tp1_rate or 0.7, tp2_rate or 0.5, tp3_rate or 0.3
         
-        # If insufficient data, fetch historical data from Binance
+        # If insufficient data, fetch historical data from Binance using ccxt
         log(f"[{symbol}] Insufficient backtest data: {len(filtered_df)} trades, fetching historical data")
-        client = await AsyncClient.create()
-        klines = await client.get_historical_klines(
-            symbol, timeframe, "2000 hours ago UTC"
-        )
-        await client.close_connection()
+        exchange = ccxt.binance({
+            "enableRateLimit": True
+        })
+        try:
+            klines = await exchange.fetch_ohlcv(symbol, timeframe, since=None, limit=2000)
+            log(f"[{symbol}] Fetched {len(klines)} klines from Binance")
+        except Exception as e:
+            log(f"[{symbol}] Error fetching klines: {e}", level="ERROR")
+            return 0.7, 0.5, 0.3
+        finally:
+            await exchange.close()
         
         if not klines or len(klines) < 200:
             log(f"[{symbol}] Insufficient historical data: {len(klines)} trades", level="WARNING")
@@ -48,9 +54,7 @@ async def get_tp_hit_rates(symbol: str, timeframe: str = None, backtest_file: st
         backtest_df = pd.DataFrame(
             klines,
             columns=[
-                'timestamp', 'open', 'high', 'low', 'close', 'volume',
-                'close_time', 'quote_asset_volume', 'number_of_trades',
-                'taker_buy_base', 'taker_buy_quote', 'ignore'
+                'timestamp', 'open', 'high', 'low', 'close', 'volume'
             ]
         )
         backtest_df['close'] = backtest_df['close'].astype(float)
