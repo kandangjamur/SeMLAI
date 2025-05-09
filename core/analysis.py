@@ -145,37 +145,4 @@ async def analyze_symbol(exchange, symbol):
                 "tp2": tp2,
                 "tp3": tp3,
                 "sl": sl,
-                "confidence": round(confidence, 2),
-                "tp1_possibility": round(tp1_possibility, 4),
-            }
-
-            log(f"[{symbol}] Signal {timeframe}: {direction}, Confidence: {confidence:.2f}%, TP1 Possibility: {tp1_possibility:.2%}")
-            signals.append(signal)
-
-        if not signals:
-            log(f"[{symbol}] No valid signals found", level="ERROR")
-            return None
-
-        # Multi-timeframe agreement filter
-        valid_signals = []
-        for sig in signals:
-            tf = sig["timeframe"]
-            dir_ = sig["direction"]
-            others = [k for k in timeframe_directions if k != tf]
-            agreement = any(timeframe_directions.get(o) == dir_ for o in others)
-            if agreement:
-                valid_signals.append(sig)
-            else:
-                log(f"[{symbol}] Rejected {tf}: no multi-timeframe agreement")
-
-        if not valid_signals:
-            log(f"[{symbol}] No signals with multi-timeframe agreement", level="ERROR")
-            return None
-
-        best = max(valid_signals, key=lambda x: x["confidence"])
-        log(f"[{symbol}] Final signal: {best['direction']} in {best['timeframe']}, Confidence: {best['confidence']:.2f}%")
-        return best
-
-    except Exception as e:
-        log(f"[{symbol}] Fatal error: {str(e)}", level="ERROR")
-        return None
+                "
