@@ -25,8 +25,8 @@ load_dotenv()
 app = FastAPI()
 
 # Signal thresholds
-CONFIDENCE_THRESHOLD = 75  # Minimum 75% for normal signals
-TP1_POSSIBILITY_THRESHOLD = 0.75  # Minimum 75% TP1 probability
+CONFIDENCE_THRESHOLD = 70  # Reduced to 70% for more signals
+TP1_POSSIBILITY_THRESHOLD = 0.65  # Reduced to 65% for more signals
 SCALPING_CONFIDENCE_THRESHOLD = 85  # Below this is Scalping Trade
 BACKTEST_FILE = "logs/signals_log.csv"
 
@@ -88,12 +88,17 @@ async def root():
 async def health():
     return {"status": "healthy", "message": "Bot is operational."}
 
-# Get all USDT pairs
+# Get top USDT pairs with high TP1 hit rates
 async def get_valid_symbols(exchange):
     try:
         markets = await exchange.load_markets()
-        usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT')]
-        logger.info(f"Found {len(usdt_symbols)} USDT pairs")
+        top_symbols = [
+            "BNB/USDT", "ETH/USDT", "NEO/USDT", "ADA/USDT", "XRP/USDT",
+            "LTC/USDT", "QTUM/USDT", "ETC/USDT", "TRX/USDT", "VET/USDT",
+            "XLM/USDT", "ONT/USDT"
+        ]
+        usdt_symbols = [s for s in top_symbols if s in markets.keys()]
+        logger.info(f"Selected {len(usdt_symbols)} top USDT pairs")
         return usdt_symbols
     except Exception as e:
         logger.error(f"Error fetching symbols: {e}")
@@ -124,7 +129,7 @@ async def scan_symbols():
             logger.error(f"Binance API connection failed: {e}")
             return
 
-        # Get all USDT symbols
+        # Get top USDT symbols
         symbols = await get_valid_symbols(exchange)
         if not symbols:
             logger.error("No valid USDT symbols found!")
@@ -185,6 +190,7 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
+                await asyncio.sleep(0.1)  # Delay to avoid API rate limits
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
