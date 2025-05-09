@@ -98,7 +98,7 @@ async def analyze_symbol(exchange, symbol):
             else:
                 ml_confidence = predict_confidence(symbol, features)  # await ہٹایا کیونکہ یہ async نہیں
             log(f"[{symbol}] ML Confidence: {ml_confidence:.2%}")
-            confidence = min(confidence + ml_confidence * 0.5, 100)
+            confidence = min(confidence + ml_confidence * 50, 100)
 
             # ڈائریکشن چیک
             if direction not in ["LONG", "SHORT"]:
