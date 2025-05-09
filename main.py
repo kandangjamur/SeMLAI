@@ -95,13 +95,13 @@ async def scan_symbols():
         for symbol in symbols:
             try:
                 result = await analyze_symbol(exchange, symbol)
-                if not result or not result.get('signal'):
+                if not result:
                     logger.info(f"⚠️ {symbol} - No valid signal")
                     continue
 
                 confidence = result.get("confidence", 0)
-                tp1_possibility = result.get("tp1_chance", 0)
-                direction = result.get("signal", "none")
+                tp1_possibility = result.get("tp1_possibility", 0)
+                direction = result.get("direction", "none")
                 trade_type = "Scalping" if confidence < SCALPING_CONFIDENCE_THRESHOLD else "Normal"
 
                 logger.info(
