@@ -83,8 +83,8 @@ async def generate_daily_summary():
             (pl.col("tp3") > 0) &
             (pl.col("sl") > 0) &
             (pl.col("volume") >= 100000) &
-            (pl.col("confidence") >= 80) &
-            (pl.col("tp1_possibility") >= 75)
+            (pl.col("confidence") >= 75) &
+            (pl.col("tp1_possibility") >= 0.75)
         )
 
         if today_signals.is_empty():
@@ -106,9 +106,9 @@ async def generate_daily_summary():
         total_hits = tp1_hits + tp2_hits + tp3_hits
         accuracy = round((total_hits / total * 100) if total > 0 else 0, 2)
 
-        avg_tp1_chance = round(today_signals["tp1_possibility"].mean(), 2)
-        avg_tp2_chance = round(today_signals["tp2_possibility"].mean(), 2)
-        avg_tp3_chance = round(today_signals["tp3_possibility"].mean(), 2)
+        avg_tp1_chance = round(today_signals["tp1_possibility"].mean() * 100, 2)
+        avg_tp2_chance = round(today_signals["tp2_possibility"].mean() * 100, 2)
+        avg_tp3_chance = round(today_signals["tp3_possibility"].mean() * 100, 2)
 
         successful_pairs = today_signals.filter(pl.col("status").is_in(["tp1", "tp2", "tp3"]))
         top_pairs = successful_pairs.group_by("symbol").len().sort("len", descending=True).head(3).to_dicts()
@@ -137,14 +137,14 @@ async def generate_daily_summary():
             f"🔽 *SHORT Signals*: {short_signals}\n"
             f"⚡ *Scalping Signals*: {scalping_signals}\n"
             f"📈 *Normal Signals*: {normal_signals}\n"
-            f"🎯 *TP1 Hits*: {tp1_hits} (Avg Chance: {avg_tp1_chance}%)\n"
-            f"🎯 *TP2 Hits*: {tp2_hits} (Avg Chance: {avg_tp2_chance}%)\n"
-            f"🎯 *TP3 Hits*: {tp3_hits} (Avg Chance: {avg_tp3_chance}%)\n"
+            f"🎯 *TP1 Hits*: {tp1_hits} (Avg Chance: {avg_tp1_chance:.2f}%)\n"
+            f"🎯 *TP2 Hits*: {tp2_hits} (Avg Chance: {avg_tp2_chance:.2f}%)\n"
+            f"🎯 *TP3 Hits*: {tp3_hits} (Avg Chance: {avg_tp3_chance:.2f}%)\n"
             f"🛑 *SL Hits*: {sl_hits}\n"
-            f"✅ *Accuracy*: {accuracy}%\n"
+            f"✅ *Accuracy*: {accuracy:.2f}%\n"
             f"🏆 *Top Pairs*:\n{top_pairs_str}\n"
             f"📡 *Indicators Used*:\n{indicators_str}\n"
-            f"🔍 *Backtest Success Rate*: {backtest_rate}%\n"
+            f"🔍 *Backtest Success Rate*: {backtest_rate:.2f}%\n"
             f"🕒 *Generated*: {datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')}"
         )
 
