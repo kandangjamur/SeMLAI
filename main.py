@@ -22,9 +22,9 @@ load_dotenv()
 app = FastAPI()
 
 # سگنل کی حدیں
-CONFIDENCE_THRESHOLD = 50  # نارمل سگنل کے لیے کم از کم 50%
-TP1_POSSIBILITY_THRESHOLD = 0.7  # TP1 امکان کم از کم 70%
-SCALPING_CONFIDENCE_THRESHOLD = 75  # اس سے کم ہو تو Scalping Trade
+CONFIDENCE_THRESHOLD = 40  # نارمل سگنل کے لیے کم از کم 40%
+TP1_POSSIBILITY_THRESHOLD = 0.6  # TP1 امکان کم از کم 60%
+SCALPING_CONFIDENCE_THRESHOLD = 65  # اس سے کم ہو تو Scalping Trade
 
 # ٹیلیگرام پر میسج بھیجنے والا فنکشن
 async def send_telegram_message(message):
@@ -54,7 +54,7 @@ async def health():
 async def get_valid_symbols(exchange):
     try:
         markets = await exchange.load_markets()
-        usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT')]
+        usdt_symbols = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'ADA/USDT', 'XRP/USDT']  # محدود سمبلز
         logger.info(f"Found {len(usdt_symbols)} USDT pairs")
         return usdt_symbols
     except Exception as e:
@@ -109,11 +109,16 @@ async def scan_symbols():
                     f"Direction: {direction} | TP1 Chance: {tp1_possibility:.2f}"
                 )
 
-                if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
+                if confidence >= CONFIDENCE_WEIGHT and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
                     message = (
                         f"🚀 {symbol}\n"
                         f"Trade Type: {trade_type}\n"
                         f"Direction: {direction}\n"
+                        f"Entry: {result['entry']:.2f}\n"
+                        f"TP1: {result['tp1']:.2f}\n"
+                        f"TP2: {result['tp2']:.2f}\n"
+                        f"TP3: {result['tp3']:.2f}\n"
+                        f"SL: {result['sl']:.2f}\n"
                         f"Confidence: {confidence:.2f}\n"
                         f"TP1 Possibility: {tp1_possibility:.2f}"
                     )
