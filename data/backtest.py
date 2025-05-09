@@ -33,13 +33,13 @@ async def get_tp_hit_rates(symbol: str, timeframe: str = None, backtest_file: st
                 log(f"[{symbol}] TP1 hit rate: {tp1_rate:.2%}, TP2: {tp2_rate:.2%}, TP3: {tp3_rate:.2%}")
                 return tp1_rate or 0.7, tp2_rate or 0.5, tp3_rate or 0.3
         
-        # If insufficient data, fetch historical data from Binance using ccxt
+        # If insufficient data, fetch historical data from Binance
         log(f"[{symbol}] Insufficient backtest data: {len(filtered_df)} trades, fetching historical data")
         exchange = ccxt.binance({
             "enableRateLimit": True
         })
         try:
-            klines = await exchange.fetch_ohlcv(symbol, timeframe, since=None, limit=2000)
+            klines = await exchange.fetch_ohlcv(symbol, timeframe, since=None, limit=1000)
             log(f"[{symbol}] Fetched {len(klines)} klines from Binance")
         except Exception as e:
             log(f"[{symbol}] Error fetching klines: {e}", level="ERROR")
@@ -53,9 +53,7 @@ async def get_tp_hit_rates(symbol: str, timeframe: str = None, backtest_file: st
         
         backtest_df = pd.DataFrame(
             klines,
-            columns=[
-                'timestamp', 'open', 'high', 'low', 'close', 'volume'
-            ]
+            columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
         )
         backtest_df['close'] = backtest_df['close'].astype(float)
         
@@ -66,11 +64,11 @@ async def get_tp_hit_rates(symbol: str, timeframe: str = None, backtest_file: st
             current_price = backtest_df['close'].iloc[i]
             future_prices = backtest_df['close'].iloc[i:i+50]
             
-            # Calculate TP levels based on volatility
-            volatility = backtest_df['close'].pct_change().std() * np.sqrt(252)
-            tp1 = current_price * (1 + 0.5 * volatility) if 'LONG' else current_price * (1 - 0.5 * volatility)
-            tp2 = current_price * (1 + 1.0 * volatility) if 'LONG' else current_price * (1 - 1.0 * volatility)
-            tp3 = current_price * (1 + 1.5 * volatility) if 'LONG' else current_price * (1 - 1.5 * volatility)
+            # Calculate TP levels based on tighter volatility
+            volatility = backtest_df['close'].pct_change().std() * np.sqrt(252) * 0.8  # Adjusted for better TP1
+            tp1 = current_price * (1 + 0.4 * volatility) if 'LONG' else current_price * (1 - 0.4 * volatility)
+            tp2 = current_price * (1 + 0.8 * volatility) if 'LONG' else current_price * (1 - 0.8 * volatility)
+            tp3 = current_price * (1 + 1.2 * volatility) if 'LONG' else current_price * (1 - 1.2 * volatility)
             
             if not all([tp1, tp2, tp3]) or any(np.isclose([tp1, tp2, tp3], current_price, rtol=1e-5)):
                 continue
@@ -104,7 +102,6 @@ async def get_tp_hit_rates(symbol: str, timeframe: str = None, backtest_file: st
     
     except FileNotFoundError:
         log(f"Backtest file {backtest_file} not found, using historical data", level="WARNING")
-        # Fetch historical data as fallback
         return await get_tp_hit_rates(symbol, timeframe)  # Recursive call without file
     except Exception as e:
         log(f"Error calculating TP hit rates for {symbol}: {str(e)}", level="ERROR")
