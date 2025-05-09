@@ -131,6 +131,12 @@ async def scan_symbols():
             return
 
         for symbol in symbols:
+            # Create a new exchange instance for each symbol to avoid memory leaks
+            exchange = ccxt.binance({
+                'apiKey': os.getenv("BINANCE_API_KEY"),
+                'secret': os.getenv("BINANCE_API_SECRET"),
+                'enableRateLimit': True,
+            })
             try:
                 result = await analyze_symbol(exchange, symbol)
                 if not result:
@@ -182,6 +188,8 @@ async def scan_symbols():
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
+            finally:
+                await exchange.close()
 
     except Exception as e:
         logger.error(f"Error in scan_symbols: {e}")
