@@ -16,7 +16,9 @@ async def send_telegram_signal(symbol: str, signal: dict):
         tp2 = signal.get("tp2", 0)
         tp3 = signal.get("tp3", 0)
         sl = signal.get("sl", 0)
-        tp1_possibility = 0.75  # ڈمی ویلیو، core/analysis.py میں شامل کرو تو یہ ہٹائیں
+        tp1_possibility = signal.get("tp1_possibility", 0.7) * 100  # Convert to percentage
+        tp2_possibility = signal.get("tp2_possibility", 0.5) * 100
+        tp3_possibility = signal.get("tp3_possibility", 0.3) * 100
         trade_type = "Scalping" if confidence < 85 else "Normal"
 
         message = (
@@ -24,8 +26,8 @@ async def send_telegram_signal(symbol: str, signal: dict):
             f"📊 *Direction*: {direction}\n"
             f"💰 *Entry Price*: {price:.4f}\n"
             f"🎯 *TP1*: {tp1:.4f} ({tp1_possibility:.2f}%)\n"
-            f"🎯 *TP2*: {tp2:.4f}\n"
-            f"🎯 *TP3*: {tp3:.4f}\n"
+            f"🎯 *TP2*: {tp2:.4f} ({tp2_possibility:.2f}%)\n"
+            f"🎯 *TP3*: {tp3:.4f} ({tp3_possibility:.2f}%)\n"
             f"🛑 *SL*: {sl:.4f}\n"
             f"🔍 *Confidence*: {confidence:.2f}%\n"
             f"⚡ *Trade Type*: {trade_type}\n"
