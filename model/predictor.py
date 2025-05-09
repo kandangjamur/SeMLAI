@@ -1,176 +1,187 @@
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestClassifier
-from joblib import load
+import joblib
+import os
+from core.candle_patterns import (
+    bullish_engulfing, bearish_engulfing, doji, hammer, shooting_star,
+    three_white_soldiers, three_black_crows
+)
+from data.backtest import get_tp_hit_rates
 from utils.logger import log
-from core.candle_patterns import is_bullish_engulfing, is_bearish_engulfing, is_doji, is_hammer, is_shooting_star, is_three_white_soldiers, is_three_black_crows
-from core.indicators import calculate_indicators
-from data.backtest import get_tp1_hit_rate
 
-class Predictor:
-    def __init__(self):
+class SignalPredictor:
+    def __init__(self, model_path="models/rf_model.joblib"):
         self.model = None
-        self.model_path = "models/rf_model.joblib"
         self.features = [
-            "rsi", "macd", "macd_signal", "bb_upper", "bb_lower", "atr",
-            "volume", "volume_sma_20", "bullish_engulfing", "bearish_engulfing",
-            "doji", "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
+            "rsi", "macd", "macd_signal", "bb_upper", "bb_lower", "atr", "volume",
+            "volume_sma_20", "bullish_engulfing", "bearish_engulfing", "doji",
+            "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
         ]
-        self.last_signals = {}  # To track last signal per symbol and timeframe
-        self.min_confidence_threshold = 0.75  # 75% minimum confidence
-
-    def load_model(self):
-        """Load the Random Forest model."""
+        self.min_confidence_threshold = 0.75
+        self.last_signals = {}  # Store last signal timestamp per symbol and timeframe
+        
         try:
-            self.model = load(self.model_path)
-            log("Random Forest model loaded successfully")
-            return self.model
+            if os.path.exists(model_path):
+                self.model = joblib.load(model_path)
+                log("Random Forest model loaded successfully")
+            else:
+                log(f"Model file not found at {model_path}", level="ERROR")
+                raise FileNotFoundError(f"Model file {model_path} not found")
         except Exception as e:
-            log(f"Error loading model: {e}", level='ERROR')
+            log(f"Error loading model: {str(e)}", level="ERROR")
+            raise
+
+    def prepare_features(self, df: pd.DataFrame):
+        """
+        Prepare features for prediction, ensuring correct feature names.
+        """
+        try:
+            feature_df = pd.DataFrame(index=df.index)
+            
+            # Technical indicators (assuming they are already calculated)
+            for feature in ["rsi", "macd", "macd_signal", "bb_upper", "bb_lower", "atr", "volume"]:
+                if feature in df.columns:
+                    feature_df[feature] = df[feature]
+                else:
+                    log(f"Feature {feature} not found in DataFrame", level="WARNING")
+                    feature_df[feature] = 0.0
+            
+            # Volume SMA
+            feature_df["volume_sma_20"] = df["volume"].rolling(window=20).mean().fillna(0.0)
+            
+            # Candlestick patterns
+            feature_df["bullish_engulfing"] = bullish_engulfing(df).astype(float)
+            feature_df["bearish_engulfing"] = bearish_engulfing(df).astype(float)
+            feature_df["doji"] = doji(df).astype(float)
+            feature_df["hammer"] = hammer(df).astype(float)
+            feature_df["shooting_star"] = shooting_star(df).astype(float)
+            feature_df["three_white_soldiers"] = three_white_soldiers(df).astype(float)
+            feature_df["three_black_crows"] = three_black_crows(df).astype(float)
+            
+            # Ensure all expected features are present
+            for feature in self.features:
+                if feature not in feature_df.columns:
+                    log(f"Adding missing feature {feature} with zeros", level="WARNING")
+                    feature_df[feature] = 0.0
+            
+            # Reorder columns to match self.features
+            feature_df = feature_df[self.features]
+            
+            # Handle NaN values
+            feature_df = feature_df.fillna(0.0)
+            
+            if feature_df.isna().any().any():
+                log("NaN values detected after filling in features", level="WARNING")
+                return None
+                
+            return feature_df
+        except Exception as e:
+            log(f"Error preparing features: {str(e)}", level="ERROR")
             return None
 
-    async def calculate_take_profits(self, df, signal):
-        """Calculate TP1, TP2, TP3 based on recent volatility."""
+    async def calculate_take_profits(self, df: pd.DataFrame, direction: str, current_price: float):
+        """
+        Calculate TP1, TP2, TP3 based on volatility.
+        """
         try:
+            # Calculate volatility (annualized)
             volatility = df['close'].pct_change().std() * np.sqrt(252)
-            current_price = df['close'].iloc[-1]
             
-            if signal == 'LONG':
+            if direction == "LONG":
                 tp1 = current_price * (1 + 0.5 * volatility)
                 tp2 = current_price * (1 + 1.0 * volatility)
                 tp3 = current_price * (1 + 1.5 * volatility)
+                sl = current_price * (1 - 0.5 * volatility)
             else:  # SHORT
                 tp1 = current_price * (1 - 0.5 * volatility)
                 tp2 = current_price * (1 - 1.0 * volatility)
                 tp3 = current_price * (1 - 1.5 * volatility)
+                sl = current_price * (1 + 0.5 * volatility)
             
-            # Ensure TP values are valid
-            if any(np.isclose([tp1, tp2, tp3], current_price, rtol=1e-5)) or any(v <= 0 for v in [tp1, tp2, tp3]):
-                log("Invalid TP values calculated, using fallback.", level='WARNING')
-                return None, None, None
+            # Ensure TP/SL are valid
+            if not all([tp1, tp2, tp3, sl]) or any(np.isclose([tp1, tp2, tp3, sl], current_price, rtol=1e-5)):
+                log("Invalid TP/SL values calculated", level="WARNING")
+                return None, None, None, None
             
-            return tp1, tp2, tp3
+            return tp1, tp2, tp3, sl
         except Exception as e:
-            log(f"Error calculating take profits: {e}", level='ERROR')
-            return None, None, None
+            log(f"Error calculating TP/SL: {str(e)}", level="ERROR")
+            return None, None, None, None
 
-    def prepare_features(self, df, symbol, timeframe):
-        """Prepare features for prediction."""
-        try:
-            if len(df) < 50 or df['close'].std() <= 0:
-                log(f"[{symbol}] Insufficient data for feature preparation", level='WARNING')
-                return None
-
-            df = df.copy()
-            # Calculate indicators
-            df = calculate_indicators(df)
-            if df is None or len(df) < 50:
-                log(f"[{symbol}] Failed to calculate indicators", level='WARNING')
-                return None
-            
-            # Additional features
-            df["bb_upper"] = df["close"] * 1.02
-            df["bb_lower"] = df["close"] * 0.98
-            df["atr"] = (df["high"] - df["low"]).rolling(window=14).mean()
-            df["volume_sma_20"] = df["volume"].rolling(window=20).mean()
-            df["bullish_engulfing"] = df.apply(lambda x: is_bullish_engulfing(df.loc[:x.name]), axis=1).astype(int)
-            df["bearish_engulfing"] = df.apply(lambda x: is_bearish_engulfing(df.loc[:x.name]), axis=1).astype(int)
-            df["doji"] = df.apply(lambda x: is_doji(df.loc[:x.name]), axis=1).astype(int)
-            df["hammer"] = df.apply(lambda x: is_hammer(df.loc[:x.name]), axis=1).astype(int)
-            df["shooting_star"] = df.apply(lambda x: is_shooting_star(df.loc[:x.name]), axis=1).astype(int)
-            df["three_white_soldiers"] = df.apply(lambda x: is_three_white_soldiers(df.loc[:x.name]), axis=1).astype(int)
-            df["three_black_crows"] = df.apply(lambda x: is_three_black_crows(df.loc[:x.name]), axis=1).astype(int)
-
-            # Handle NaN values
-            df[self.features] = df[self.features].fillna({
-                "rsi": 50.0,
-                "macd": 0.0,
-                "macd_signal": 0.0,
-                "atr": df["atr"].mean() if not df["atr"].isna().all() else 0.0,
-                "volume_sma_20": df["volume"].mean() if not df["volume"].isna().all() else 0.0,
-                "bb_upper": df["close"] * 1.02,
-                "bb_lower": df["close"] * 0.98,
-                "bullish_engulfing": 0,
-                "bearish_engulfing": 0,
-                "doji": 0,
-                "hammer": 0,
-                "shooting_star": 0,
-                "three_white_soldiers": 0,
-                "three_black_crows": 0,
-                "volume": df["volume"].mean() if not df["volume"].isna().all() else 0.0
-            })
-            
-            # Select features for prediction
-            X = df[self.features].iloc[-1:]
-            if X.isna().any().any():
-                log(f"[{symbol}] NaN values in features after filling", level='WARNING')
-                return None
-            return X
-        except Exception as e:
-            log(f"[{symbol}] Error preparing features: {e}", level='ERROR')
-            return None
-
-    async def predict_signal(self, symbol, df, timeframe):
-        """Generate trading signal with confidence and TP probabilities."""
+    async def predict_signal(self, symbol: str, df: pd.DataFrame, timeframe: str = "15m"):
+        """
+        Predict trading signal for a given symbol and timeframe.
+        """
         try:
             if self.model is None:
-                self.model = self.load_model()
-                if self.model is None:
-                    return None, 0, (0.7, 0.5, 0.3)
-
+                log("Model not loaded", level="ERROR")
+                return None
+                
+            # Check for recent signals to prevent duplicates
+            signal_key = f"{symbol}_{timeframe}"
+            last_signal_time = self.last_signals.get(signal_key)
+            if last_signal_time and (pd.Timestamp.now() - last_signal_time).total_seconds() < 3600:
+                log(f"[{symbol}] Skipping duplicate signal within 1 hour", level="INFO")
+                return None
+                
             # Prepare features
-            X = self.prepare_features(df, symbol, timeframe)
-            if X is None:
-                return None, 0, (0.7, 0.5, 0.3)
-
-            # Predict signal
-            prediction = self.model.predict(X)[0]
-            confidence = self.model.predict_proba(X)[0].max()
+            features = self.prepare_features(df)
+            if features is None or len(features) == 0:
+                log(f"[{symbol}] No valid features for prediction", level="WARNING")
+                return None
+                
+            # Predict
+            current_features = features.iloc[-1].values.reshape(1, -1)
+            prediction_proba = self.model.predict_proba(current_features)[0]
+            prediction = self.model.predict(current_features)[0]
             
-            # Normalize confidence
-            confidence = min(max(confidence, 0), 0.95) * 100  # Cap at 95%
+            # Determine direction and confidence
+            direction = "LONG" if prediction == 1 else "SHORT"
+            confidence = max(prediction_proba) * 100
             
-            # Apply threshold
+            # Normalize confidence to 0-95%
+            confidence = min(max(confidence, 0), 0.95) * 100
+            
             if confidence < self.min_confidence_threshold * 100:
-                log(f"[{symbol}] Confidence {confidence:.2f}% below threshold {self.min_confidence_threshold*100}%")
-                return None, 0, (0.7, 0.5, 0.3)
+                log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
+                return None
+                
+            # Get current price
+            current_price = df["close"].iloc[-1]
             
-            signal = 'LONG' if prediction == 1 else 'SHORT'
+            # Calculate TP/SL
+            tp1, tp2, tp3, sl = await self.calculate_take_profits(df, direction, current_price)
+            if any(x is None for x in [tp1, tp2, tp3, sl]):
+                log(f"[{symbol}] Invalid TP/SL values", level="WARNING")
+                return None
+                
+            # Get TP hit rates
+            tp1_hit_rate, tp2_hit_rate, tp3_hit_rate = await get_tp_hit_rates(symbol, timeframe)
             
-            # Check for repeated signals
-            key = f"{symbol}_{timeframe}"
-            if key in self.last_signals:
-                last_signal, last_time = self.last_signals[key]
-                if last_signal == signal and (pd.Timestamp.now() - last_time).seconds < 3600:
-                    log(f"[{symbol}] Skipping repeated signal for {key}")
-                    return None, 0, (0.7, 0.5, 0.3)
-            
-            # Update last signal
-            self.last_signals[key] = (signal, pd.Timestamp.now())
-            
-            # Calculate TP probabilities
-            tp1_prob = get_tp1_hit_rate(symbol, timeframe)
-            tp2_prob = tp1_prob * 0.8  # Assume TP2 is 80% of TP1 probability
-            tp3_prob = tp1_prob * 0.6  # Assume TP3 is 60% of TP1 probability
-            
-            # Calculate TP values
-            tp1, tp2, tp3 = await self.calculate_take_profits(df, signal)
-            if not all([tp1, tp2, tp3]):
-                log(f"[{symbol}] Invalid TP values, skipping signal")
-                return None, 0, (0.7, 0.5, 0.3)
-            
-            log(f"[{symbol}] Signal for {timeframe}: {signal}, Confidence: {confidence:.2f}%, TP1: {tp1_prob:.2f}%")
-            return {
-                'direction': signal,
-                'confidence': confidence,
-                'tp1': tp1,
-                'tp2': tp2,
-                'tp3': tp3,
-                'tp1_possibility': tp1_prob,
-                'tp2_possibility': tp2_prob,
-                'tp3_possibility': tp3_prob,
-                'timeframe': timeframe
+            # Create signal
+            signal = {
+                "symbol": symbol,
+                "direction": direction,
+                "entry": current_price,
+                "tp1": tp1,
+                "tp2": tp2,
+                "tp3": tp3,
+                "sl": sl,
+                "confidence": confidence,
+                "tp1_possibility": tp1_hit_rate,
+                "tp2_possibility": tp2_hit_rate,
+                "tp3_possibility": tp3_hit_rate,
+                "timeframe": timeframe,
+                "timestamp": pd.Timestamp.now().isoformat()
             }
+            
+            # Update last signal time
+            self.last_signals[signal_key] = pd.Timestamp.now()
+            
+            log(f"[{symbol}] Signal generated - Direction: {direction}, Confidence: {confidence:.2f}%")
+            return signal
+            
         except Exception as e:
-            log(f"[{symbol}] Error in predict_signal: {e}", level='ERROR')
-            return None, 0, (0.7, 0.5, 0.3)
+            log(f"[{symbol}] Error predicting signal: {str(e)}", level="ERROR")
+            return None
