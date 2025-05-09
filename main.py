@@ -30,7 +30,7 @@ TP1_POSSIBILITY_THRESHOLD = 0.65  # 65% for more signals
 SCALPING_CONFIDENCE_THRESHOLD = 85  # Below this is Scalping Trade
 BACKTEST_FILE = "logs/signals_log.csv"
 MIN_VOLUME_USD = 500000  # Minimum 24h volume in USD
-MAX_SYMBOLS = 100  # Limit to top 100 symbols by volume
+MAX_SYMBOLS = 50  # Limit to top 50 symbols by volume
 
 # Send Telegram message
 async def send_telegram_message(message):
@@ -203,7 +203,7 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
-                await asyncio.sleep(0.2)  # Increased delay to avoid API rate limits
+                await asyncio.sleep(0.3)  # Increased delay to avoid API rate limits
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
@@ -228,6 +228,7 @@ async def run_bot():
 # Start scanner on app startup
 @app.on_event("startup")
 async def start_bot():
+    await asyncio.sleep(5)  # Delay to ensure app is fully initialized
     asyncio.create_task(run_bot())
 
 # Run app
