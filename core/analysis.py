@@ -76,13 +76,13 @@ async def analyze_symbol(exchange, symbol):
                 confidence -= 15
 
             # بریک آؤٹ ڈیٹیکشن
-            breakout = detect_breakout(df)
-            if breakout == "up":
+            breakout = detect_breakout(symbol, df)
+            if breakout["direction"] == "up":
                 if direction == "LONG" or direction is None:
                     direction = "LONG"
                     confidence += 20
                     indicator_count += 1
-            elif breakout == "down":
+            elif breakout["direction"] == "down":
                 if direction == "SHORT" or direction is None:
                     direction = "SHORT"
                     confidence += 20
