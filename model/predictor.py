@@ -38,20 +38,20 @@ class SignalPredictor:
             feature_df = pd.DataFrame(index=df.index, dtype="float32")
             
             for feature in ["rsi", "macd", "macd_signal", "atr", "volume"]:
-                if feature in df.columns:
-                    feature_df[feature] = df[feature]
+                if feature in df.columns and not df[feature].isna().all():
+                    feature_df[feature] = df[feature].fillna(0.0)
                 else:
-                    log(f"Feature {feature} not found in DataFrame", level="WARNING")
+                    log(f"Feature {feature} not found or all NaN in DataFrame", level="WARNING")
                     feature_df[feature] = 0.0
             
             # Calculate candlestick patterns
-            feature_df["bullish_engulfing"] = is_bullish_engulfing(df).astype(float)
-            feature_df["bearish_engulfing"] = is_bearish_engulfing(df).astype(float)
-            feature_df["doji"] = is_doji(df).astype(float)
-            feature_df["hammer"] = is_hammer(df).astype(float)
-            feature_df["shooting_star"] = is_shooting_star(df).astype(float)
-            feature_df["three_white_soldiers"] = is_three_white_soldiers(df).astype(float)
-            feature_df["three_black_crows"] = is_three_black_crows(df).astype(float)
+            feature_df["bullish_engulfing"] = is_bullish_engulfing(df).astype(float).fillna(0.0)
+            feature_df["bearish_engulfing"] = is_bearish_engulfing(df).astype(float).fillna(0.0)
+            feature_df["doji"] = is_doji(df).astype(float).fillna(0.0)
+            feature_df["hammer"] = is_hammer(df).astype(float).fillna(0.0)
+            feature_df["shooting_star"] = is_shooting_star(df).astype(float).fillna(0.0)
+            feature_df["three_white_soldiers"] = is_three_white_soldiers(df).astype(float).fillna(0.0)
+            feature_df["three_black_crows"] = is_three_black_crows(df).astype(float).fillna(0.0)
             
             for feature in self.features:
                 if feature not in feature_df.columns:
@@ -65,6 +65,7 @@ class SignalPredictor:
                 log("NaN values detected after filling in features", level="WARNING")
                 return None
                 
+            log(f"Features prepared: {feature_df.iloc[-1].to_dict()}")
             return feature_df
         except Exception as e:
             log(f"Error preparing features: {str(e)}", level="ERROR")
@@ -75,6 +76,9 @@ class SignalPredictor:
     async def calculate_take_profits(self, df: pd.DataFrame, direction: str, current_price: float):
         try:
             atr = df["atr"].iloc[-1]
+            if pd.isna(atr) or atr <= 0:
+                log("Invalid ATR value for TP/SL calculation", level="WARNING")
+                return None, None, None, None
             
             if direction == "LONG":
                 tp1 = current_price + (0.15 * atr)
@@ -119,21 +123,24 @@ class SignalPredictor:
             prediction_proba = self.model.predict_proba(current_features)[0]
             prediction = self.model.predict(current_features)[0]
             
-            # Strict bullish/bearish conditions
-            is_bullish = (
-                features["bullish_engulfing"].iloc[-1] > 0 and
-                features["hammer"].iloc[-1] > 0 and
-                features["three_white_soldiers"].iloc[-1] > 0 and
-                df["rsi"].iloc[-1] < 45 and
-                df["macd"].iloc[-1] > df["macd_signal"].iloc[-1]
-            )
-            is_bearish = (
-                features["bearish_engulfing"].iloc[-1] > 0 and
-                features["shooting_star"].iloc[-1] > 0 and
-                features["three_black_crows"].iloc[-1] > 0 and
-                df["rsi"].iloc[-1] > 55 and
-                df["macd"].iloc[-1] < df["macd_signal"].iloc[-1]
-            )
+            # Strict bullish/bearish conditions with type checking
+            bullish_conditions = [
+                features["bullish_engulfing"].iloc[-1] > 0,
+                features["hammer"].iloc[-1] > 0,
+                features["three_white_soldiers"].iloc[-1] > 0,
+                df["rsi"].iloc[-1] < 45 if not pd.isna(df["rsi"].iloc[-1]) else False,
+                df["macd"].iloc[-1] > df["macd_signal"].iloc[-1] if not (pd.isna(df["macd"].iloc[-1]) or pd.isna(df["macd_signal"].iloc[-1])) else False
+            ]
+            bearish_conditions = [
+                features["bearish_engulfing"].iloc[-1] > 0,
+                features["shooting_star"].iloc[-1] > 0,
+                features["three_black_crows"].iloc[-1] > 0,
+                df["rsi"].iloc[-1] > 55 if not pd.isna(df["rsi"].iloc[-1]) else False,
+                df["macd"].iloc[-1] < df["macd_signal"].iloc[-1] if not (pd.isna(df["macd"].iloc[-1]) or pd.isna(df["macd_signal"].iloc[-1])) else False
+            ]
+            
+            is_bullish = all(bullish_conditions)
+            is_bearish = all(bearish_conditions)
             
             direction = "LONG" if prediction == 1 else "SHORT"
             confidence = min(max(prediction_proba.max(), 0), 0.95) * 100
@@ -156,7 +163,7 @@ class SignalPredictor:
                 log(f"[{symbol}] Invalid TP/SL values", level="WARNING")
                 return None
                 
-            # Default TP hit rates (backtest removed)
+            # Default TP hit rates
             tp1_hit_rate, tp2_hit_rate, tp3_hit_rate = 0.75, 0.50, 0.25
             
             signal = {
