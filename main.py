@@ -26,7 +26,7 @@ load_dotenv()
 app = FastAPI()
 
 # Signal thresholds
-CONFIDENCE_THRESHOLD = 65  # Set to 65% for more accurate signals
+CONFIDENCE_THRESHOLD = 60  # Reduced to 60% for more signals
 TP1_POSSIBILITY_THRESHOLD = 0.65  # 65% for more signals
 SCALPING_CONFIDENCE_THRESHOLD = 85  # Below this is Scalping Trade
 BACKTEST_FILE = "logs/signals_log.csv"
@@ -213,7 +213,7 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
-                await asyncio.sleep(0.2)  # Delay to avoid API rate limits
+                await asyncio.sleep(0.3)  # Increased delay to avoid API rate limits
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
