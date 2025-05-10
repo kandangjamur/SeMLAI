@@ -35,6 +35,7 @@ BACKTEST_FILE = "logs/signals_log.csv"
 MIN_VOLUME_USD = 500000
 COOLDOWN_MINUTES = 30
 SCAN_INTERVAL_SECONDS = 1800
+MAX_SYMBOLS = 300  # Reduced to manage CPU/memory
 
 # Track last signal time for each symbol
 last_signal_time = {}
@@ -114,6 +115,8 @@ async def get_valid_symbols(exchange):
                 logger.error(f"Error fetching ticker for {symbol}: {e}")
                 continue
         
+        # Limit to MAX_SYMBOLS
+        valid_symbols = valid_symbols[:MAX_SYMBOLS]
         logger.info(f"Selected {len(valid_symbols)} USDT pairs with volume >= ${MIN_VOLUME_USD}")
         return valid_symbols
     except Exception as e:
@@ -125,7 +128,7 @@ async def get_valid_symbols(exchange):
 # Scan symbols for signals
 async def scan_symbols():
     try:
-        # Create a single exchange instance for initial setup
+        # Create exchange for initial setup
         exchange = ccxt.binance({
             'apiKey': os.getenv("BINANCE_API_KEY"),
             'secret': os.getenv("BINANCE_API_SECRET"),
@@ -172,6 +175,7 @@ async def scan_symbols():
                 'secret': os.getenv("BINANCE_API_SECRET"),
                 'enableRateLimit': True,
             })
+            df = None
             try:
                 result = await analyze_symbol(exchange, symbol)
                 if not result:
@@ -188,15 +192,16 @@ async def scan_symbols():
                     f"Direction: {direction} | TP1 Chance: {tp1_possibility:.2f}"
                 )
 
-                if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
-                    ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=30)
-                    df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
-                    df = find_support_resistance(df)
-                    support = df["support"].iloc[-1] if "support" in df else 0.0
-                    resistance = df["resistance"].iloc[-1] if "resistance" in df else 0.0
-                    atr = (df["high"] - df["low"]).rolling(window=14).mean().iloc[-1]
-                    leverage = 10 if trade_type == "Scalp" else 5
+                # Fetch OHLCV for support/resistance
+                ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=20)
+                df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
+                df = find_support_resistance(df)
+                support = df["support"].iloc[-1] if "support" in df else 0.0
+                resistance = df["resistance"].iloc[-1] if "resistance" in df else 0.0
+                atr = (df["high"] - df["low"]).rolling(window=14).mean().iloc[-1]
+                leverage = 10 if trade_type == "Scalp" else 5
 
+                if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
                     pk_time = datetime.now(tz=pytz.timezone("Asia/Karachi")).strftime("%Y-%m-%d %H:%M")
                     message = (
                         f"⚡ Trade Pair: {symbol}\n"
@@ -217,12 +222,10 @@ async def scan_symbols():
                 elif confidence < CONFIDENCE_THRESHOLD:
                     logger.info("⚠️ Skipped - Low confidence")
                 elif tp1_possibility < TP1_POSSIBILITY_THRESHOLD:
-                    logger.info("⚠️ Sk Wiped - Low TP1 possibility")
+                    logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
                 await asyncio.sleep(0.6)
-                del df
-                gc.collect()
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
@@ -231,6 +234,8 @@ async def scan_symbols():
                 logger.info(f"⚠️ Skipped {symbol} due to error, continuing to next symbol")
                 continue
             finally:
+                if df is not None:
+                    del df
                 await exchange.close()
                 gc.collect()
 
