@@ -9,31 +9,36 @@ import numpy as np
 import asyncio
 import gc
 
-# Global predictor instance to avoid reloading model
+# Global predictor instance
 predictor = None
+
+async def initialize_predictor():
+    global predictor
+    if predictor is None:
+        try:
+            predictor = SignalPredictor()
+            log("Random Forest model loaded successfully")
+        except Exception as e:
+            log(f"Error loading Random Forest model: {e}", level="ERROR")
+            raise
 
 async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "15m"):
     global predictor
     try:
         log(f"[{symbol}] Starting analysis on {timeframe}")
         
-        # Initialize predictor only once at startup
         if predictor is None:
-            try:
-                predictor = SignalPredictor()
-                log(f"Random Forest model loaded successfully")
-            except Exception as e:
-                log(f"[{symbol}] Error loading Random Forest model: {e}", level="ERROR")
-                return None
+            log(f"[{symbol}] Predictor not initialized", level="ERROR")
+            return None
 
         # Fetch OHLCV data
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=20)  # Reduced limit
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=50)  # Increased for indicators
         log(f"[{symbol}] Fetched {len(ohlcv)} OHLCV rows")
         
         df = pd.DataFrame(
             ohlcv,
             columns=["timestamp", "open", "high", "low", "close", "volume"],
-            dtype="float32"
+            dtype="float16"
         )
         
         # Calculate indicators
@@ -73,7 +78,7 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
         
         # Calculate TP and SL levels
         if direction == "LONG":
-            tp1 = current_price + (0.15 * atr)  # Adjusted for higher TP1 hit rate
+            tp1 = current_price + (0.15 * atr)
             tp2 = current_price + (0.3 * atr)
             tp3 = current_price + (0.45 * atr)
             sl = current_price - (1.2 * atr)
