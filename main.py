@@ -11,6 +11,7 @@ import telegram
 from utils.support_resistance import find_support_resistance
 from utils.logger import log
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 # Logging setup
 logging.basicConfig(
@@ -32,7 +33,7 @@ SCALPING_CONFIDENCE_THRESHOLD = 85  # Below this is Scalping Trade
 BACKTEST_FILE = "logs/signals_log.csv"
 MIN_VOLUME_USD = 500000  # Minimum 24h volume in USD
 COOLDOWN_MINUTES = 30  # Cooldown period for same symbol signals
-SCAN_INTERVAL_SECONDS = 1800  # Scan all symbols every 30 minutes
+SCAN_INTERVAL_SECONDS = 1800  # Scan every 30 minutes
 
 # Track last signal time for each symbol
 last_signal_time = {}
@@ -59,7 +60,7 @@ def log_signal_to_csv(signal, trade_type, atr, leverage, support, resistance, mi
             "price": signal["entry"],
             "confidence": signal["confidence"],
             "trade_type": trade_type,
-            "timestamp": pd.Timestamp.now().isoformat(),
+            "timestamp": pd.Timestamp.now(tz=ZoneInfo("Asia/Karachi")).isoformat(),
             "tp1": signal["tp1"],
             "tp2": signal["tp2"],
             "tp3": signal["tp3"],
@@ -108,7 +109,7 @@ async def get_valid_symbols(exchange):
                 volume_usd = ticker.get('quoteVolume', 0)
                 if volume_usd >= MIN_VOLUME_USD:
                     valid_symbols.append(symbol)
-                await asyncio.sleep(0.05)  # Reduced delay for faster symbol fetching
+                await asyncio.sleep(0.05)  # Reduced delay for faster fetching
             except Exception as e:
                 logger.error(f"Error fetching ticker for {symbol}: {e}")
                 continue
@@ -154,7 +155,7 @@ async def scan_symbols():
             # Check cooldown period
             if symbol in last_signal_time:
                 last_time = last_signal_time[symbol]
-                if datetime.now() < last_time + timedelta(minutes=COOLDOWN_MINUTES):
+                if datetime.now(tz=ZoneInfo("Asia/Karachi")) < last_time + timedelta(minutes=COOLDOWN_MINUTES):
                     logger.info(f"[{symbol}] Skipped - In cooldown period")
                     continue
 
@@ -173,7 +174,7 @@ async def scan_symbols():
                 confidence = result.get("confidence", 0)
                 tp1_possibility = result.get("tp1_possibility", 0)
                 direction = result.get("direction", "none")
-                trade_type = "Scalping" if confidence < SCALPING_CONFIDENCE_THRESHOLD else "Normal"
+                trade_type = "Scalp" if confidence < SCALPING_CONFIDENCE_THRESHOLD else "Normal"
 
                 logger.info(
                     f"🔍 {symbol} | Confidence: {confidence:.2f} | "
@@ -182,31 +183,33 @@ async def scan_symbols():
 
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
                     # Calculate support/resistance and other metrics
-                    ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=50)  # Reduced limit
+                    ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=50)
                     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
                     df = find_support_resistance(df)
                     support = df["support"].iloc[-1] if "support" in df else 0.0
                     resistance = df["resistance"].iloc[-1] if "resistance" in df else 0.0
                     atr = (df["high"] - df["low"]).rolling(window=14).mean().iloc[-1]
-                    leverage = 10 if trade_type == "Scalping" else 5
+                    leverage = 10 if trade_type == "Scalp" else 5
 
+                    # Format message with emojis and PKT time
+                    pk_time = datetime.now(tz=ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %H:%M")
                     message = (
-                        f"🚀 {symbol}\n"
-                        f"Trade Type: {trade_type}\n"
-                        f"Direction: {direction}\n"
-                        f"Entry: {result['entry']:.2f}\n"
-                        f"TP1: {result['tp1']:.2f} ({result['tp1_possibility']*100:.2f}%)\n"
-                        f"TP2: {result['tp2']:.2f} ({result['tp2_possibility']*100:.2f}%)\n"
-                        f"TP3: {result['tp3']:.2f} ({result['tp3_possibility']*100:.2f}%)\n"
-                        f"SL: {result['sl']:.2f}\n"
-                        f"Confidence: {confidence:.2f}%\n"
-                        f"TP1 Possibility: {tp1_possibility*100:.2f}%"
+                        f"⚡ Trade Pair: {symbol}\n"
+                        f"📉 Trade Type: {trade_type}\n"
+                        f"🎯 Direction: {direction}\n"
+                        f"🚀 Entry: {result['entry']:.2f}\n"
+                        f"🎯 TP1: {result['tp1']:.2f} ({result['tp1_possibility']*100:.2f}%)\n"
+                        f"💰 TP2: {result['tp2']:.2f} ({result['tp2_possibility']*100:.2f}%)\n"
+                        f"📈 TP3: {result['tp3']:.2f} ({result['tp3_possibility']*100:.2f}%)\n"
+                        f"🛡️ SL: {result['sl']:.2f}\n"
+                        f"📊 Confidence: {confidence:.2f}%\n"
+                        f"⏰ Time: {pk_time}"
                     )
                     await send_telegram_message(message)
                     # Log signal to CSV
                     log_signal_to_csv(result, trade_type, atr, leverage, support, resistance, (support + resistance) / 2, direction)
                     # Update last signal time
-                    last_signal_time[symbol] = datetime.now()
+                    last_signal_time[symbol] = datetime.now(tz=ZoneInfo("Asia/Karachi"))
                     logger.info("✅ Signal SENT ✅")
                 elif confidence < CONFIDENCE_THRESHOLD:
                     logger.info("⚠️ Skipped - Low confidence")
@@ -214,14 +217,14 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
-                await asyncio.sleep(0.6)  # Increased delay to reduce API rate limits and CPU usage
+                await asyncio.sleep(0.6)  # Delay to reduce API rate limits
                 df = None  # Clear DataFrame to free memory
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
                 if "predict_signal" in str(e).lower() or "missing 1 required positional argument" in str(e).lower():
                     logger.info(f"⚠️ Skipped {symbol} due to prediction error, continuing to next symbol")
-                    continue  # Skip to next symbol on predict_signal error
+                    continue
                 if "rate limit" in str(e).lower():
                     await asyncio.sleep(5)  # Wait on rate limit error
             finally:
@@ -238,7 +241,7 @@ async def run_bot():
         try:
             await scan_symbols()
             logger.info(f"Completed one scan cycle, waiting {SCAN_INTERVAL_SECONDS/60} minutes for next scan")
-            await asyncio.sleep(SCAN_INTERVAL_SECONDS)  # Scan every 30 minutes for multiple daily scans
+            await asyncio.sleep(SCAN_INTERVAL_SECONDS)  # Scan every 30 minutes
         except Exception as e:
             logger.error(f"Error in run_bot: {e}")
             await asyncio.sleep(10)  # Short delay on error
