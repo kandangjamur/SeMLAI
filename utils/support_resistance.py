@@ -1,25 +1,19 @@
 import pandas as pd
-import numpy as np
 from utils.logger import log
 
 def find_support_resistance(df):
     try:
         df = df.copy()
-        window = 5
         # Validate input data
-        if df.empty or len(df) < window:
+        if df.empty or len(df) < 5:
             log("Input DataFrame is empty or too small for support/resistance", level="ERROR")
             df['support'] = df['low']
             df['resistance'] = df['high']
             return df
         
-        # Calculate support and resistance
-        df['support'] = df['low'].rolling(window=window, min_periods=1).min()
-        df['resistance'] = df['high'].rolling(window=window, min_periods=1).max()
-        
-        # Simplified NaN handling
-        df['support'] = df['support'].fillna(df['low'])
-        df['resistance'] = df['resistance'].fillna(df['high'])
+        # Use direct low/high as support/resistance to avoid NaN issues
+        df['support'] = df['low']
+        df['resistance'] = df['high']
         
         # Log final values
         log(f"Support/Resistance calculated: Last support={df['support'].iloc[-1]:.2f}, resistance={df['resistance'].iloc[-1]:.2f}")
