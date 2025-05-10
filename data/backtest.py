@@ -8,11 +8,11 @@ from core.candle_patterns import (
     is_bullish_engulfing, is_bearish_engulfing, is_doji, is_hammer, is_shooting_star,
     is_three_white_soldiers, is_three_black_crows
 )
+import gc
 
 async def get_tp_hit_rates(symbol: str, timeframe: str):
     try:
         exchange = ccxt.binance()
-        # Check if enough backtest data exists
         backtest_file = "logs/signals_log.csv"
         if not pd.io.common.file_exists(backtest_file):
             log(f"[{symbol}] No backtest data found, fetching historical data", level="INFO")
@@ -25,7 +25,6 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
             log(f"[{symbol}] Insufficient backtest data: {len(df)} trades, fetching historical data", level="INFO")
             return await fetch_historical_hit_rates(exchange, symbol, timeframe)
         
-        # Calculate hit rates based on historical signals
         tp1_hits = 0
         tp2_hits = 0
         tp3_hits = 0
@@ -59,11 +58,11 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
         return 0.0, 0.0, 0.0
     finally:
         await exchange.close()
+        gc.collect()
 
 async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
     try:
-        # Fetch historical klines
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=200)  # Reduced to 200
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)  # Reduced to 100
         log(f"[{symbol}] Fetched {len(ohlcv)} klines from Binance")
         
         df = pd.DataFrame(
@@ -72,7 +71,6 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
             dtype="float32"
         )
         
-        # Calculate indicators and candlestick patterns
         df = calculate_indicators(df)
         df["bullish_engulfing"] = is_bullish_engulfing(df).astype(float)
         df["bearish_engulfing"] = is_bearish_engulfing(df).astype(float)
@@ -82,7 +80,6 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
         df["three_white_soldiers"] = is_three_white_soldiers(df).astype(float)
         df["three_black_crows"] = is_three_black_crows(df).astype(float)
         
-        # Simulate trades based on technical analysis
         tp1_hits = 0
         tp2_hits = 0
         tp3_hits = 0
@@ -94,7 +91,6 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
             future_low = df["low"].iloc[i + 1]
             atr = df["atr"].iloc[i]
             
-            # Determine trade direction based on technical signals
             is_bullish = (
                 df["bullish_engulfing"].iloc[i] or
                 df["hammer"].iloc[i] or
@@ -109,10 +105,9 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
             )
             
             if is_bullish:
-                # LONG trade
-                tp1 = current_price + (0.3 * atr)  # Adjusted for higher hit rate
-                tp2 = current_price + (0.6 * atr)
-                tp3 = current_price + (0.9 * atr)
+                tp1 = current_price + (0.2 * atr)  # Further adjusted
+                tp2 = current_price + (0.4 * atr)
+                tp3 = current_price + (0.6 * atr)
                 
                 if future_high >= tp1:
                     tp1_hits += 1
@@ -123,10 +118,9 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
                 total_trades += 1
             
             if is_bearish:
-                # SHORT trade
-                tp1 = current_price - (0.3 * atr)  # Adjusted for higher hit rate
-                tp2 = current_price - (0.6 * atr)
-                tp3 = current_price - (0.9 * atr)
+                tp1 = current_price - (0.2 * atr)
+                tp2 = current_price - (0.4 * atr)
+                tp3 = current_price - (0.6 * atr)
                 
                 if future_low <= tp1:
                     tp1_hits += 1
@@ -148,3 +142,4 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
         return 0.0, 0.0, 0.0
     finally:
         await exchange.close()
+        gc.collect()
