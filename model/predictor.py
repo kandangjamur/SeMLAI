@@ -9,6 +9,8 @@ from core.candle_patterns import (
 )
 from data.backtest import get_tp_hit_rates
 from utils.logger import log
+import pytz
+import gc
 
 class SignalPredictor:
     def __init__(self, model_path="models/rf_model.joblib"):
@@ -18,8 +20,8 @@ class SignalPredictor:
             "volume_sma_20", "bullish_engulfing", "bearish_engulfing", "doji",
             "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
         ]
-        self.min_confidence_threshold = 0.70  # Match main.py
-        self.last_signals = {}  # Store last signal timestamp per symbol and timeframe
+        self.min_confidence_threshold = 0.70
+        self.last_signals = {}
         
         try:
             if os.path.exists(model_path):
@@ -36,7 +38,6 @@ class SignalPredictor:
         try:
             feature_df = pd.DataFrame(index=df.index)
             
-            # Technical indicators
             for feature in ["rsi", "macd", "macd_signal", "bb_upper", "bb_lower", "atr", "volume"]:
                 if feature in df.columns:
                     feature_df[feature] = df[feature]
@@ -44,10 +45,8 @@ class SignalPredictor:
                     log(f"Feature {feature} not found in DataFrame", level="WARNING")
                     feature_df[feature] = 0.0
             
-            # Volume SMA
             feature_df["volume_sma_20"] = df["volume"].rolling(window=20).mean().fillna(0.0)
             
-            # Candlestick patterns
             feature_df["bullish_engulfing"] = is_bullish_engulfing(df).astype(float)
             feature_df["bearish_engulfing"] = is_bearish_engulfing(df).astype(float)
             feature_df["doji"] = is_doji(df).astype(float)
@@ -56,16 +55,12 @@ class SignalPredictor:
             feature_df["three_white_soldiers"] = is_three_white_soldiers(df).astype(float)
             feature_df["three_black_crows"] = is_three_black_crows(df).astype(float)
             
-            # Ensure all expected features are present
             for feature in self.features:
                 if feature not in feature_df.columns:
                     log(f"Adding missing feature {feature} with zeros", level="WARNING")
                     feature_df[feature] = 0.0
             
-            # Reorder columns to match self.features
             feature_df = feature_df[self.features]
-            
-            # Handle NaN values
             feature_df = feature_df.fillna(0.0)
             
             if feature_df.isna().any().any():
@@ -82,14 +77,14 @@ class SignalPredictor:
             atr = df["atr"].iloc[-1]
             
             if direction == "LONG":
-                tp1 = current_price + (0.3 * atr)  # Adjusted for higher hit rate
-                tp2 = current_price + (0.6 * atr)
-                tp3 = current_price + (0.9 * atr)
+                tp1 = current_price + (0.2 * atr)
+                tp2 = current_price + (0.4 * atr)
+                tp3 = current_price + (0.6 * atr)
                 sl = current_price - (1.5 * atr)
             else:  # SHORT
-                tp1 = current_price - (0.3 * atr)
-                tp2 = current_price - (0.6 * atr)
-                tp3 = current_price - (0.9 * atr)
+                tp1 = current_price - (0.2 * atr)
+                tp2 = current_price - (0.4 * atr)
+                tp3 = current_price - (0.6 * atr)
                 sl = current_price + (1.5 * atr)
             
             if not all([tp1, tp2, tp3, sl]) or any(np.isclose([tp1, tp2, tp3, sl], current_price, rtol=1e-5)):
@@ -107,64 +102,56 @@ class SignalPredictor:
                 log("Model not loaded", level="ERROR")
                 return None
                 
-            # Check for recent signals to prevent duplicates
             signal_key = f"{symbol}_{timeframe}"
             last_signal_time = self.last_signals.get(signal_key)
             if last_signal_time and (pd.Timestamp.now() - last_signal_time).total_seconds() < 3600:
                 log(f"[{symbol}] Skipping duplicate signal within 1 hour", level="INFO")
                 return None
                 
-            # Prepare features
             features = self.prepare_features(df)
             if features is None or len(features) == 0:
                 log(f"[{symbol}] No valid features for prediction", level="WARNING")
                 return None
                 
-            # Predict
             current_features = features.iloc[-1:].reindex(columns=self.features)
             prediction_proba = self.model.predict_proba(current_features)[0]
             prediction = self.model.predict(current_features)[0]
             
             # Boost confidence with technical signals
             is_bullish = (
-                is_bullish_engulfing(df)[-1] or
-                is_hammer(df)[-1] or
-                is_three_white_soldiers(df)[-1] or
+                features["bullish_engulfing"].iloc[-1] or
+                features["hammer"].iloc[-1] or
+                features["three_white_soldiers"].iloc[-1] or
                 (df["rsi"].iloc[-1] < 30 and df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])
             )
             is_bearish = (
-                is_bearish_engulfing(df)[-1] or
-                is_shooting_star(df)[-1] or
-                is_three_black_crows(df)[-1] or
+                features["bearish_engulfing"].iloc[-1] or
+                features["shooting_star"].iloc[-1] or
+                features["three_black_crows"].iloc[-1] or
                 (df["rsi"].iloc[-1] > 70 and df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])
             )
             
             direction = "LONG" if prediction == 1 else "SHORT"
             confidence = min(max(prediction_proba.max() * 100, 0), 95)
             
-            # Adjust confidence based on technical signals
             if (direction == "LONG" and is_bullish) or (direction == "SHORT" and is_bearish):
-                confidence = min(confidence + 10, 95)  # Boost confidence
+                confidence = min(confidence + 10, 95)
             elif (direction == "LONG" and is_bearish) or (direction == "SHORT" and is_bullish):
-                confidence = max(confidence - 10, 0)  # Reduce confidence
+                confidence = max(confidence - 10, 0)
                 
             if confidence < self.min_confidence_threshold * 100:
                 log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
                 return None
                 
-            # Get current price
             current_price = df["close"].iloc[-1]
             
-            # Calculate TP/SL
             tp1, tp2, tp3, sl = await self.calculate_take_profits(df, direction, current_price)
             if any(x is None for x in [tp1, tp2, tp3, sl]):
                 log(f"[{symbol}] Invalid TP/SL values", level="WARNING")
                 return None
                 
-            # Get TP hit rates
             tp1_hit_rate, tp2_hit_rate, tp3_hit_rate = await get_tp_hit_rates(symbol, timeframe)
             
-            # Create signal
             signal = {
                 "symbol": symbol,
                 "direction": direction,
@@ -181,7 +168,6 @@ class SignalPredictor:
                 "timestamp": pd.Timestamp.now(tz=pytz.timezone("Asia/Karachi")).isoformat()
             }
             
-            # Update last signal time
             self.last_signals[signal_key] = pd.Timestamp.now()
             
             log(f"[{symbol}] Signal generated - Direction: {direction}, Confidence: {confidence:.2f}%")
@@ -190,3 +176,5 @@ class SignalPredictor:
         except Exception as e:
             log(f"[{symbol}] Error predicting signal: {str(e)}", level="ERROR")
             return None
+        finally:
+            gc.collect()
