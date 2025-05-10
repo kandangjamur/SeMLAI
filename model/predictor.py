@@ -19,7 +19,7 @@ class SignalPredictor:
             "bullish_engulfing", "bearish_engulfing", "doji",
             "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
         ]
-        self.min_confidence_threshold = 0.65
+        self.min_confidence_threshold = 0.65  # 65% confidence
         self.last_signals = {}
         
         try:
@@ -44,6 +44,7 @@ class SignalPredictor:
                     log(f"Feature {feature} not found in DataFrame", level="WARNING")
                     feature_df[feature] = 0.0
             
+            # Calculate candlestick patterns
             feature_df["bullish_engulfing"] = is_bullish_engulfing(df).astype(float)
             feature_df["bearish_engulfing"] = is_bearish_engulfing(df).astype(float)
             feature_df["doji"] = is_doji(df).astype(float)
@@ -71,6 +72,32 @@ class SignalPredictor:
         finally:
             gc.collect()
 
+    async def calculate_take_profits(self, df: pd.DataFrame, direction: str, current_price: float):
+        try:
+            atr = df["atr"].iloc[-1]
+            
+            if direction == "LONG":
+                tp1 = current_price + (0.15 * atr)
+                tp2 = current_price + (0.3 * atr)
+                tp3 = current_price + (0.45 * atr)
+                sl = current_price - (1.2 * atr)
+            else:  # SHORT
+                tp1 = current_price - (0.15 * atr)
+                tp2 = current_price - (0.3 * atr)
+                tp3 = current_price - (0.45 * atr)
+                sl = current_price + (1.2 * atr)
+            
+            if not all([tp1, tp2, tp3, sl]) or any(np.isclose([tp1, tp2, tp3, sl], current_price, rtol=1e-5)):
+                log("Invalid TP/SL values calculated", level="WARNING")
+                return None, None, None, None
+            
+            return tp1, tp2, tp3, sl
+        except Exception as e:
+            log(f"Error calculating TP/SL: {str(e)}", level="ERROR")
+            return None, None, None, None
+        finally:
+            gc.collect()
+
     async def predict_signal(self, symbol: str, df: pd.DataFrame, timeframe: str = "15m"):
         try:
             if self.model is None:
@@ -92,20 +119,20 @@ class SignalPredictor:
             prediction_proba = self.model.predict_proba(current_features)[0]
             prediction = self.model.predict(current_features)[0]
             
-            # Convert float to bool for candlestick patterns
+            # Strict bullish/bearish conditions
             is_bullish = (
-                (features["bullish_engulfing"].iloc[-1] > 0) &
-                (features["hammer"].iloc[-1] > 0) &
-                (features["three_white_soldiers"].iloc[-1] > 0) &
-                (df["rsi"].iloc[-1] < 45) &
-                (df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])
+                features["bullish_engulfing"].iloc[-1] > 0 and
+                features["hammer"].iloc[-1] > 0 and
+                features["three_white_soldiers"].iloc[-1] > 0 and
+                df["rsi"].iloc[-1] < 45 and
+                df["macd"].iloc[-1] > df["macd_signal"].iloc[-1]
             )
             is_bearish = (
-                (features["bearish_engulfing"].iloc[-1] > 0) &
-                (features["shooting_star"].iloc[-1] > 0) &
-                (features["three_black_crows"].iloc[-1] > 0) &
-                (df["rsi"].iloc[-1] > 55) &
-                (df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])
+                features["bearish_engulfing"].iloc[-1] > 0 and
+                features["shooting_star"].iloc[-1] > 0 and
+                features["three_black_crows"].iloc[-1] > 0 and
+                df["rsi"].iloc[-1] > 55 and
+                df["macd"].iloc[-1] < df["macd_signal"].iloc[-1]
             )
             
             direction = "LONG" if prediction == 1 else "SHORT"
@@ -123,11 +150,13 @@ class SignalPredictor:
                 return None
                 
             current_price = df["close"].iloc[-1]
+            
             tp1, tp2, tp3, sl = await self.calculate_take_profits(df, direction, current_price)
             if any(x is None for x in [tp1, tp2, tp3, sl]):
                 log(f"[{symbol}] Invalid TP/SL values", level="WARNING")
                 return None
                 
+            # Default TP hit rates (backtest removed)
             tp1_hit_rate, tp2_hit_rate, tp3_hit_rate = 0.75, 0.50, 0.25
             
             signal = {
@@ -158,5 +187,3 @@ class SignalPredictor:
             if 'features' in locals():
                 del features
             gc.collect()
-
-    # [Rest of the class remains unchanged]
