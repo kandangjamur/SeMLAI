@@ -21,11 +21,27 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
             return await fetch_historical_hit_rates(exchange, symbol, timeframe)
         
         # Calculate hit rates
-        tp1_hits = len(df[df["tp1"] <= df["price"]]) if "LONG" in df["prediction"].values else len(df[df["tp1"] >= df["price"]])
-        tp2_hits = len(df[df["tp2"] <= df["price"]]) if "LONG" in df["prediction"].values else len(df[df["tp2"] >= df["price"]])
-        tp3_hits = len(df[df["tp3"] <= df["price"]]) if "LONG" in df["prediction"].values else len(df[df["tp3"] >= df["price"]])
-        
+        tp1_hits = 0
+        tp2_hits = 0
+        tp3_hits = 0
         total_trades = len(df)
+        
+        for _, row in df.iterrows():
+            if row["prediction"] == "LONG":
+                if row["price"] <= row["tp1"]:
+                    tp1_hits += 1
+                if row["price"] <= row["tp2"]:
+                    tp2_hits += 1
+                if row["price"] <= row["tp3"]:
+                    tp3_hits += 1
+            else:  # SHORT
+                if row["price"] >= row["tp1"]:
+                    tp1_hits += 1
+                if row["price"] >= row["tp2"]:
+                    tp2_hits += 1
+                if row["price"] >= row["tp3"]:
+                    tp3_hits += 1
+        
         tp1_rate = tp1_hits / total_trades if total_trades > 0 else 0.0
         tp2_rate = tp2_hits / total_trades if total_trades > 0 else 0.0
         tp3_rate = tp3_hits / total_trades if total_trades > 0 else 0.0
@@ -42,7 +58,7 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
 async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
     try:
         # Fetch historical klines
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=500)  # Reduced to 500
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=300)  # Reduced to 300 for less memory
         log(f"[{symbol}] Fetched {len(ohlcv)} klines from Binance")
         
         df = pd.DataFrame(
@@ -62,7 +78,7 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
             future_high = df["high"].iloc[i + 1]
             future_low = df["low"].iloc[i + 1]
             
-            # Assume LONG trade
+            # Simulate LONG trade
             tp1 = current_price * 1.02
             tp2 = current_price * 1.04
             tp3 = current_price * 1.06
@@ -74,8 +90,20 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
             if future_high >= tp3:
                 tp3_hits += 1
                 
-            total_trades += 1
-        
+            # Simulate SHORT trade
+            tp1_short = current_price * 0.98
+            tp2_short = current_price * 0.96
+            tp3_short = current_price * 0.94
+            
+            if future_low <= tp1_short:
+                tp1_hits += 1
+            if future_low <= tp2_short:
+                tp2_hits += 1
+            if future_low <= tp3_short:
+                tp3_hits += 1
+                
+            total_trades += 2  # Count both LONG and SHORT
+            
         tp1_rate = tp1_hits / total_trades if total_trades > 0 else 0.0
         tp2_rate = tp2_hits / total_trades if total_trades > 0 else 0.0
         tp3_rate = tp3_hits / total_trades if total_trades > 0 else 0.0
