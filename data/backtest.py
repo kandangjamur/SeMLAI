@@ -18,7 +18,7 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
             df = pd.read_csv(backtest_file)
             df = df[df["symbol"] == symbol]
             
-            if len(df) >= 5:  # Reduced threshold
+            if len(df) >= 5:
                 tp1_hits = 0
                 tp2_hits = 0
                 tp3_hits = 0
@@ -47,7 +47,7 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
                 log(f"[{symbol}] Backtest TP1 hit rate: {tp1_rate:.2%}, TP2: {tp2_rate:.2%}, TP3: {tp3_rate:.2%}")
                 return tp1_rate, tp2_rate, tp3_rate
 
-        # Fetch historical data if insufficient backtest data
+        # Fetch historical data
         log(f"[{symbol}] Insufficient backtest data, fetching historical data", level="INFO")
         exchange = ccxt.binance()
         try:
@@ -62,16 +62,20 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
 
 async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
     try:
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=30)  # Reduced to 30
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=30)
         log(f"[{symbol}] Fetched {len(ohlcv)} klines from Binance")
         
         df = pd.DataFrame(
             ohlcv,
             columns=["timestamp", "open", "high", "low", "close", "volume"],
-            dtype="float32"
+            dtype="float16"
         )
         
         df = calculate_indicators(df)
+        if df is None:
+            log(f"[{symbol}] Failed to calculate indicators for backtest", level="WARNING")
+            return 0.0, 0.0, 0.0
+            
         df["bullish_engulfing"] = is_bullish_engulfing(df).astype(float)
         df["bearish_engulfing"] = is_bearish_engulfing(df).astype(float)
         df["doji"] = is_doji(df).astype(float)
@@ -95,17 +99,17 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
                 df["bullish_engulfing"].iloc[i] or
                 df["hammer"].iloc[i] or
                 df["three_white_soldiers"].iloc[i] or
-                (df["rsi"].iloc[i] < 35 and df["macd"].iloc[i] > df["macd_signal"].iloc[i])  # Relaxed RSI
+                (df["rsi"].iloc[i] < 40 and df["macd"].iloc[i] > df["macd_signal"].iloc[i])
             )
             is_bearish = (
                 df["bearish_engulfing"].iloc[i] or
                 df["shooting_star"].iloc[i] or
                 df["three_black_crows"].iloc[i] or
-                (df["rsi"].iloc[i] > 65 and df["macd"].iloc[i] < df["macd_signal"].iloc[i])  # Relaxed RSI
+                (df["rsi"].iloc[i] > 60 and df["macd"].iloc[i] < df["macd_signal"].iloc[i])
             )
             
             if is_bullish:
-                tp1 = current_price + (0.15 * atr)  # Adjusted
+                tp1 = current_price + (0.15 * atr)
                 tp2 = current_price + (0.3 * atr)
                 tp3 = current_price + (0.45 * atr)
                 
