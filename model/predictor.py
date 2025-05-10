@@ -18,7 +18,7 @@ class SignalPredictor:
             "volume_sma_20", "bullish_engulfing", "bearish_engulfing", "doji",
             "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
         ]
-        self.min_confidence_threshold = 0.75
+        self.min_confidence_threshold = 0.70  # Adjusted to match main.py
         self.last_signals = {}  # Store last signal timestamp per symbol and timeframe
         
         try:
@@ -33,13 +33,10 @@ class SignalPredictor:
             raise
 
     def prepare_features(self, df: pd.DataFrame):
-        """
-        Prepare features for prediction, ensuring correct feature names.
-        """
         try:
             feature_df = pd.DataFrame(index=df.index)
             
-            # Technical indicators (assuming they are already calculated)
+            # Technical indicators
             for feature in ["rsi", "macd", "macd_signal", "bb_upper", "bb_lower", "atr", "volume"]:
                 if feature in df.columns:
                     feature_df[feature] = df[feature]
@@ -81,23 +78,20 @@ class SignalPredictor:
             return None
 
     async def calculate_take_profits(self, df: pd.DataFrame, direction: str, current_price: float):
-        """
-        Calculate TP1, TP2, TP3 based on volatility.
-        """
         try:
-            # Calculate volatility (annualized)
-            volatility = df['close'].pct_change().std() * np.sqrt(252)
+            # Use ATR for more realistic TP/SL
+            atr = df["atr"].iloc[-1]
             
             if direction == "LONG":
-                tp1 = current_price * (1 + 0.5 * volatility)
-                tp2 = current_price * (1 + 1.0 * volatility)
-                tp3 = current_price * (1 + 1.5 * volatility)
-                sl = current_price * (1 - 0.5 * volatility)
+                tp1 = current_price + (0.5 * atr)
+                tp2 = current_price + (1.0 * atr)
+                tp3 = current_price + (1.5 * atr)
+                sl = current_price - (1.5 * atr)
             else:  # SHORT
-                tp1 = current_price * (1 - 0.5 * volatility)
-                tp2 = current_price * (1 - 1.0 * volatility)
-                tp3 = current_price * (1 - 1.5 * volatility)
-                sl = current_price * (1 + 0.5 * volatility)
+                tp1 = current_price - (0.5 * atr)
+                tp2 = current_price - (1.0 * atr)
+                tp3 = current_price - (1.5 * atr)
+                sl = current_price + (1.5 * atr)
             
             # Ensure TP/SL are valid
             if not all([tp1, tp2, tp3, sl]) or any(np.isclose([tp1, tp2, tp3, sl], current_price, rtol=1e-5)):
@@ -110,9 +104,6 @@ class SignalPredictor:
             return None, None, None, None
 
     async def predict_signal(self, symbol: str, df: pd.DataFrame, timeframe: str = "15m"):
-        """
-        Predict trading signal for a given symbol and timeframe.
-        """
         try:
             if self.model is None:
                 log("Model not loaded", level="ERROR")
@@ -161,16 +152,16 @@ class SignalPredictor:
                 "symbol": symbol,
                 "direction": direction,
                 "entry": current_price,
-                "tp1": tp1,
-                "tp2": tp2,
-                "tp3": tp3,
-                "sl": sl,
+                "tp1": round(tp1, 4),
+                "tp2": round(tp2, 4),
+                "tp3": round(tp3, 4),
+                "sl": round(sl, 4),
                 "confidence": confidence,
                 "tp1_possibility": tp1_hit_rate,
                 "tp2_possibility": tp2_hit_rate,
                 "tp3_possibility": tp3_hit_rate,
                 "timeframe": timeframe,
-                "timestamp": pd.Timestamp.now().isoformat()
+                "timestamp": pd.Timestamp.now(tz=ZoneInfo("Asia/Karachi")).isoformat()
             }
             
             # Update last signal time
