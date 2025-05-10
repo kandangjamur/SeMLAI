@@ -32,13 +32,13 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
             return None
 
         # Fetch OHLCV data
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=50)  # Increased for indicators
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=50)
         log(f"[{symbol}] Fetched {len(ohlcv)} OHLCV rows")
         
         df = pd.DataFrame(
             ohlcv,
             columns=["timestamp", "open", "high", "low", "close", "volume"],
-            dtype="float16"
+            dtype="float32"
         )
         
         # Calculate indicators
