@@ -28,13 +28,13 @@ load_dotenv()
 app = FastAPI()
 
 # Signal thresholds
-CONFIDENCE_THRESHOLD = 70  # 70% for high confidence signals
-TP1_POSSIBILITY_THRESHOLD = 0.70  # 70% for accurate signals
-SCALPING_CONFIDENCE_THRESHOLD = 85  # Below this is Scalping Trade
+CONFIDENCE_THRESHOLD = 70
+TP1_POSSIBILITY_THRESHOLD = 0.70
+SCALPING_CONFIDENCE_THRESHOLD = 85
 BACKTEST_FILE = "logs/signals_log.csv"
-MIN_VOLUME_USD = 500000  # Minimum 24h volume in USD
-COOLDOWN_MINUTES = 30  # Cooldown period for same symbol signals
-SCAN_INTERVAL_SECONDS = 1800  # Scan every 30 minutes
+MIN_VOLUME_USD = 500000
+COOLDOWN_MINUTES = 30
+SCAN_INTERVAL_SECONDS = 1800
 
 # Track last signal time for each symbol
 last_signal_time = {}
@@ -75,7 +75,7 @@ def log_signal_to_csv(signal, trade_type, atr, leverage, support, resistance, mi
             "tp1_possibility": signal["tp1_possibility"],
             "tp2_possibility": signal["tp2_possibility"],
             "tp3_possibility": signal["tp3_possibility"],
-            "status": "open"  # Default status
+            "status": "open"
         }
         df = pd.DataFrame([signal_data])
         if not os.path.exists(BACKTEST_FILE):
@@ -124,19 +124,20 @@ async def get_valid_symbols(exchange):
 
 # Scan symbols for signals
 async def scan_symbols():
-    exchange = ccxt.binance({
-        'apiKey': os.getenv("BINANCE_API_KEY"),
-        'secret': os.getenv("BINANCE_API_SECRET"),
-        'enableRateLimit': True,
-    })
-
-    api_key = os.getenv("BINANCE_API_KEY")
-    api_secret = os.getenv("BINANCE_API_SECRET")
-    if not api_key or not api_secret:
-        logger.error("API Key or Secret is missing! Check Koyeb Config Vars.")
-        return
-
     try:
+        # Create a single exchange instance for initial setup
+        exchange = ccxt.binance({
+            'apiKey': os.getenv("BINANCE_API_KEY"),
+            'secret': os.getenv("BINANCE_API_SECRET"),
+            'enableRateLimit': True,
+        })
+
+        api_key = os.getenv("BINANCE_API_KEY")
+        api_secret = os.getenv("BINANCE_API_SECRET")
+        if not api_key or not api_secret:
+            logger.error("API Key or Secret is missing! Check Koyeb Config Vars.")
+            return
+
         # Test connection
         try:
             await exchange.fetch_ticker('BTC/USDT')
@@ -144,8 +145,15 @@ async def scan_symbols():
         except Exception as e:
             logger.error(f"Binance API connection failed: {e}")
             return
+        finally:
+            await exchange.close()
 
         # Get valid USDT symbols
+        exchange = ccxt.binance({
+            'apiKey': os.getenv("BINANCE_API_KEY"),
+            'secret': os.getenv("BINANCE_API_SECRET"),
+            'enableRateLimit': True,
+        })
         symbols = await get_valid_symbols(exchange)
         if not symbols:
             logger.error("No valid USDT symbols found!")
@@ -158,6 +166,7 @@ async def scan_symbols():
                     logger.info(f"[{symbol}] Skipped - In cooldown period")
                     continue
 
+            # Create new exchange instance for each symbol
             exchange = ccxt.binance({
                 'apiKey': os.getenv("BINANCE_API_KEY"),
                 'secret': os.getenv("BINANCE_API_SECRET"),
@@ -180,7 +189,7 @@ async def scan_symbols():
                 )
 
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
-                    ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=50)
+                    ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=30)
                     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
                     df = find_support_resistance(df)
                     support = df["support"].iloc[-1] if "support" in df else 0.0
@@ -208,12 +217,12 @@ async def scan_symbols():
                 elif confidence < CONFIDENCE_THRESHOLD:
                     logger.info("⚠️ Skipped - Low confidence")
                 elif tp1_possibility < TP1_POSSIBILITY_THRESHOLD:
-                    logger.info("⚠️ Skipped - Low TP1 possibility")
+                    logger.info("⚠️ Sk Wiped - Low TP1 possibility")
 
                 logger.info("---")
                 await asyncio.sleep(0.6)
-                df = None
-                gc.collect()  # Clear memory
+                del df
+                gc.collect()
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
@@ -223,11 +232,12 @@ async def scan_symbols():
                 continue
             finally:
                 await exchange.close()
+                gc.collect()
 
     except Exception as e:
         logger.error(f"Error in scan_symbols: {e}")
     finally:
-        await exchange.close()
+        gc.collect()
 
 # Continuous scanner
 async def run_bot():
