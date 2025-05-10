@@ -11,15 +11,18 @@ def find_support_resistance(df):
         df['resistance'] = df['high'].rolling(window=window, min_periods=1).max()
         
         # Robust NaN handling
-        df['support'] = df['support'].fillna(df['low'].min())
-        df['resistance'] = df['resistance'].fillna(df['high'].max())
+        if df['support'].isna().any():
+            df['support'] = df['support'].fillna(df['low'].min())
+        if df['resistance'].isna().any():
+            df['resistance'] = df['resistance'].fillna(df['high'].max())
         
-        # Ensure no NaN remains
+        # Final check for NaN
         if df['support'].isna().any() or df['resistance'].isna().any():
-            log("NaN values still present in support/resistance after filling", level="WARNING")
+            log("NaN values persist in support/resistance, using last known values", level="WARNING")
             df['support'] = df['support'].fillna(df['low'].iloc[-1])
             df['resistance'] = df['resistance'].fillna(df['high'].iloc[-1])
         
+        log(f"Support/Resistance calculated: Last support={df['support'].iloc[-1]:.2f}, resistance={df['resistance'].iloc[-1]:.2f}")
         return df
     except Exception as e:
         log(f"Error in support/resistance calculation: {e}", level="ERROR")
@@ -28,6 +31,7 @@ def find_support_resistance(df):
 def detect_breakout(symbol, df):
     try:
         if len(df) < 3:
+            log(f"[{symbol}] Insufficient data for breakout detection", level="WARNING")
             return {"is_breakout": False, "direction": "none"}
         
         current_price = df['close'].iloc[-1]
@@ -36,12 +40,14 @@ def detect_breakout(symbol, df):
         resistance = df['resistance'].iloc[-1]
         
         if pd.isna(support) or pd.isna(resistance):
-            log(f"[{symbol}] Invalid support/resistance values", level="WARNING")
+            log(f"[{symbol}] Invalid support/resistance values: support={support}, resistance={resistance}", level="WARNING")
             return {"is_breakout": False, "direction": "none"}
         
         if prev_price <= resistance and current_price > resistance:
+            log(f"[{symbol}] Breakout detected: Up (Price={current_price:.2f}, Resistance={resistance:.2f})")
             return {"is_breakout": True, "direction": "up"}
         elif prev_price >= support and current_price < support:
+            log(f"[{symbol}] Breakout detected: Down (Price={current_price:.2f}, Support={support:.2f})")
             return {"is_breakout": True, "direction": "down"}
         else:
             return {"is_breakout": False, "direction": "none"}
