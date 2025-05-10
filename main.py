@@ -28,14 +28,18 @@ load_dotenv()
 app = FastAPI()
 
 # Signal thresholds
-CONFIDENCE_THRESHOLD = 70
-TP1_POSSIBILITY_THRESHOLD = 0.70
-SCALPING_CONFIDENCE_THRESHOLD = 85
-BACKTEST_FILE = "logs/signals_log.csv"
-MIN_VOLUME_USD = 500000
+CONFIDENCE_THRESHOLD = 65  # Adjusted to 65% for tight thresholds
+TP1_POSSIBILITY_THRESHOLD = 0.65  # Adjusted to 65%
+SCALPING_CONFIDENCE_THRESHOLD = 80
+MIN_VOLUME_USD = 1000000  # Increased to filter low liquidity coins
 COOLDOWN_MINUTES = 30
 SCAN_INTERVAL_SECONDS = 1800
-MAX_SYMBOLS = 200  # Reduced to manage CPU/memory
+
+# Blacklist delisted or low liquidity coins
+BLACKLISTED_SYMBOLS = [
+    'VEN/USDT', 'PAX/USDT', 'BCHABC/USDT', 'BADGER/USDT', 'BAL/USDT',
+    'CREAM/USDT', 'NULS/USDT', 'TROY/USDT'
+]
 
 # Track last signal time for each symbol
 last_signal_time = {}
@@ -79,6 +83,7 @@ def log_signal_to_csv(signal, trade_type, atr, leverage, support, resistance, mi
             "status": "open"
         }
         df = pd.DataFrame([signal_data])
+        BACKTEST_FILE = "logs/signals_log_new.csv"  # New file to avoid old data
         if not os.path.exists(BACKTEST_FILE):
             df.to_csv(BACKTEST_FILE, index=False)
         else:
@@ -97,14 +102,19 @@ async def root():
 async def health():
     return {"status": "healthy", "message": "Bot is operational."}
 
-# Get USDT pairs with sufficient volume
+# Get valid USDT pairs with sufficient volume and filter delisted coins
 async def get_valid_symbols(exchange):
     try:
         markets = await exchange.load_markets()
-        usdt_symbols = [s for s in markets.keys() if s.endswith('/USDT')]
+        usdt_symbols = [
+            symbol for symbol in markets
+            if symbol.endswith('/USDT') and markets[symbol]['active'] and markets[symbol]['info']['status'] == 'TRADING'
+        ]
         valid_symbols = []
         
         for symbol in usdt_symbols:
+            if symbol in BLACKLISTED_SYMBOLS:
+                continue
             try:
                 ticker = await exchange.fetch_ticker(symbol)
                 volume_usd = ticker.get('quoteVolume', 0)
@@ -115,8 +125,6 @@ async def get_valid_symbols(exchange):
                 logger.error(f"Error fetching ticker for {symbol}: {e}")
                 continue
         
-        # Limit to MAX_SYMBOLS
-        valid_symbols = valid_symbols[:MAX_SYMBOLS]
         logger.info(f"Selected {len(valid_symbols)} USDT pairs with volume >= ${MIN_VOLUME_USD}")
         return valid_symbols
     except Exception as e:
