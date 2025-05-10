@@ -68,7 +68,7 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
         df = pd.DataFrame(
             ohlcv,
             columns=["timestamp", "open", "high", "low", "close", "volume"],
-            dtype="float16"
+            dtype="float32"
         )
         
         df = calculate_indicators(df)
