@@ -120,7 +120,7 @@ async def get_valid_symbols(exchange):
                 volume_usd = ticker.get('quoteVolume', 0)
                 if volume_usd >= MIN_VOLUME_USD:
                     valid_symbols.append(symbol)
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.07)
             except Exception as e:
                 logger.error(f"Error fetching ticker for {symbol}: {e}")
                 continue
