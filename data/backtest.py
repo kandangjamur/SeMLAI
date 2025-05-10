@@ -18,7 +18,7 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
             df = pd.read_csv(backtest_file)
             df = df[df["symbol"] == symbol]
             
-            if len(df) >= 10:
+            if len(df) >= 5:  # Reduced threshold
                 tp1_hits = 0
                 tp2_hits = 0
                 tp3_hits = 0
@@ -62,7 +62,7 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
 
 async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
     try:
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=50)  # Reduced to 50
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=30)  # Reduced to 30
         log(f"[{symbol}] Fetched {len(ohlcv)} klines from Binance")
         
         df = pd.DataFrame(
@@ -95,19 +95,19 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
                 df["bullish_engulfing"].iloc[i] or
                 df["hammer"].iloc[i] or
                 df["three_white_soldiers"].iloc[i] or
-                (df["rsi"].iloc[i] < 30 and df["macd"].iloc[i] > df["macd_signal"].iloc[i])
+                (df["rsi"].iloc[i] < 35 and df["macd"].iloc[i] > df["macd_signal"].iloc[i])  # Relaxed RSI
             )
             is_bearish = (
                 df["bearish_engulfing"].iloc[i] or
                 df["shooting_star"].iloc[i] or
                 df["three_black_crows"].iloc[i] or
-                (df["rsi"].iloc[i] > 70 and df["macd"].iloc[i] < df["macd_signal"].iloc[i])
+                (df["rsi"].iloc[i] > 65 and df["macd"].iloc[i] < df["macd_signal"].iloc[i])  # Relaxed RSI
             )
             
             if is_bullish:
-                tp1 = current_price + (0.2 * atr)
-                tp2 = current_price + (0.4 * atr)
-                tp3 = current_price + (0.6 * atr)
+                tp1 = current_price + (0.15 * atr)  # Adjusted
+                tp2 = current_price + (0.3 * atr)
+                tp3 = current_price + (0.45 * atr)
                 
                 if future_high >= tp1:
                     tp1_hits += 1
@@ -118,9 +118,9 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
                 total_trades += 1
             
             if is_bearish:
-                tp1 = current_price - (0.2 * atr)
-                tp2 = current_price - (0.4 * atr)
-                tp3 = current_price - (0.6 * atr)
+                tp1 = current_price - (0.15 * atr)
+                tp2 = current_price - (0.3 * atr)
+                tp3 = current_price - (0.45 * atr)
                 
                 if future_low <= tp1:
                     tp1_hits += 1
@@ -141,5 +141,6 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
         log(f"[{symbol}] Error fetching historical hit rates: {e}", level="ERROR")
         return 0.0, 0.0, 0.0
     finally:
-        del df
+        if 'df' in locals():
+            del df
         gc.collect()
