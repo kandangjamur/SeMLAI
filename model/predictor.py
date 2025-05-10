@@ -7,7 +7,6 @@ from core.candle_patterns import (
     is_bullish_engulfing, is_bearish_engulfing, is_doji, is_hammer, is_shooting_star,
     is_three_white_soldiers, is_three_black_crows
 )
-from data.backtest import get_tp_hit_rates
 from utils.logger import log
 import pytz
 import gc
@@ -20,7 +19,7 @@ class SignalPredictor:
             "bullish_engulfing", "bearish_engulfing", "doji",
             "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
         ]
-        self.min_confidence_threshold = 0.70
+        self.min_confidence_threshold = 0.65  # Adjusted to 65%
         self.last_signals = {}
         
         try:
@@ -119,18 +118,18 @@ class SignalPredictor:
             prediction_proba = self.model.predict_proba(current_features)[0]
             prediction = self.model.predict(current_features)[0]
             
-            # Boost confidence with technical signals
+            # Boost confidence with strict technical signals
             is_bullish = (
-                features["bullish_engulfing"].iloc[-1] or
-                features["hammer"].iloc[-1] or
-                features["three_white_soldiers"].iloc[-1] or
-                (df["rsi"].iloc[-1] < 40 and df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])
+                features["bullish_engulfing"].iloc[-1] and
+                features["hammer"].iloc[-1] and
+                features["three_white_soldiers"].iloc[-1] and
+                (df["rsi"].iloc[-1] < 45 and df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])
             )
             is_bearish = (
-                features["bearish_engulfing"].iloc[-1] or
-                features["shooting_star"].iloc[-1] or
-                features["three_black_crows"].iloc[-1] or
-                (df["rsi"].iloc[-1] > 60 and df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])
+                features["bearish_engulfing"].iloc[-1] and
+                features["shooting_star"].iloc[-1] and
+                features["three_black_crows"].iloc[-1] and
+                (df["rsi"].iloc[-1] > 55 and df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])
             )
             
             direction = "LONG" if prediction == 1 else "SHORT"
@@ -152,7 +151,8 @@ class SignalPredictor:
                 log(f"[{symbol}] Invalid TP/SL values", level="WARNING")
                 return None
                 
-            tp1_hit_rate, tp2_hit_rate, tp3_hit_rate = await get_tp_hit_rates(symbol, timeframe)
+            # Default TP hit rates (backtest removed)
+            tp1_hit_rate, tp2_hit_rate, tp3_hit_rate = 0.75, 0.50, 0.25
             
             signal = {
                 "symbol": symbol,
