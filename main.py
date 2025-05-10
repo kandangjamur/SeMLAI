@@ -1,7 +1,7 @@
 import asyncio
 import uvicorn
 from fastapi import FastAPI
-from core.analysis import analyze_symbol
+from core.analysis import analyze_symbol, initialize_predictor
 import ccxt.async_support as ccxt
 import os
 import logging
@@ -35,7 +35,7 @@ BACKTEST_FILE = "logs/signals_log.csv"
 MIN_VOLUME_USD = 500000
 COOLDOWN_MINUTES = 30
 SCAN_INTERVAL_SECONDS = 1800
-MAX_SYMBOLS = 300  # Reduced to manage CPU/memory
+MAX_SYMBOLS = 250  # Reduced to manage CPU/memory
 
 # Track last signal time for each symbol
 last_signal_time = {}
@@ -193,8 +193,8 @@ async def scan_symbols():
                 )
 
                 # Fetch OHLCV for support/resistance
-                ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=20)
-                df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
+                ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=50)
+                df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float16")
                 df = find_support_resistance(df)
                 support = df["support"].iloc[-1] if "support" in df else 0.0
                 resistance = df["resistance"].iloc[-1] if "resistance" in df else 0.0
@@ -225,7 +225,7 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
-                await asyncio.sleep(0.6)
+                await asyncio.sleep(0.3)  # Reduced CPU load
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
@@ -258,6 +258,7 @@ async def run_bot():
 # Start scanner on app startup
 @app.on_event("startup")
 async def start_bot():
+    await initialize_predictor()  # Initialize predictor once
     await asyncio.sleep(10)
     asyncio.create_task(run_bot())
 
