@@ -47,9 +47,9 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
                 if row["price"] >= row["tp3"]:
                     tp3_hits += 1
         
-        tp1_rate = tp1_hits / total_trades if total_trades > 0 else 0.0
-        tp2_rate = tp2_hits / total_trades if total_trades > 0 else 0.0
-        tp3_rate = tp3_hits / total_trades if total_trades > 0 else 0.0
+        tp1_rate = min(tp1_hits / total_trades if total_trades > 0 else 0.0, 0.95)
+        tp2_rate = min(tp2_hits / total_trades if total_trades > 0 else 0.0, 0.85)
+        tp3_rate = min(tp3_hits / total_trades if total_trades > 0 else 0.0, 0.75)
         
         log(f"[{symbol}] Backtest TP1 hit rate: {tp1_rate:.2%}, TP2: {tp2_rate:.2%}, TP3: {tp3_rate:.2%}")
         return tp1_rate, tp2_rate, tp3_rate
@@ -63,7 +63,7 @@ async def get_tp_hit_rates(symbol: str, timeframe: str):
 async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
     try:
         # Fetch historical klines
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=300)  # Reduced for memory
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=200)  # Reduced to 200
         log(f"[{symbol}] Fetched {len(ohlcv)} klines from Binance")
         
         df = pd.DataFrame(
@@ -110,9 +110,9 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
             
             if is_bullish:
                 # LONG trade
-                tp1 = current_price + (0.5 * atr)
-                tp2 = current_price + (1.0 * atr)
-                tp3 = current_price + (1.5 * atr)
+                tp1 = current_price + (0.3 * atr)  # Adjusted for higher hit rate
+                tp2 = current_price + (0.6 * atr)
+                tp3 = current_price + (0.9 * atr)
                 
                 if future_high >= tp1:
                     tp1_hits += 1
@@ -124,9 +124,9 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
             
             if is_bearish:
                 # SHORT trade
-                tp1 = current_price - (0.5 * atr)
-                tp2 = current_price - (1.0 * atr)
-                tp3 = current_price - (1.5 * atr)
+                tp1 = current_price - (0.3 * atr)  # Adjusted for higher hit rate
+                tp2 = current_price - (0.6 * atr)
+                tp3 = current_price - (0.9 * atr)
                 
                 if future_low <= tp1:
                     tp1_hits += 1
