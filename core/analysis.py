@@ -57,7 +57,7 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
         else:
             # Predict signal
             try:
-                signal = await predictor.predict_signal(symbol, df, timeframe)  # Fixed to pass symbol and timeframe
+                signal = await predictor.predict_signal(symbol, df, timeframe)
                 if signal is None:
                     log(f"[{symbol}] No valid signal from predictor", level="INFO")
                     return None
