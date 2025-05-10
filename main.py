@@ -12,6 +12,7 @@ from utils.support_resistance import find_support_resistance
 from utils.logger import log
 from datetime import datetime, timedelta
 import pytz
+import gc
 
 # Logging setup
 logging.basicConfig(
@@ -77,7 +78,6 @@ def log_signal_to_csv(signal, trade_type, atr, leverage, support, resistance, mi
             "status": "open"  # Default status
         }
         df = pd.DataFrame([signal_data])
-        # Append to file
         if not os.path.exists(BACKTEST_FILE):
             df.to_csv(BACKTEST_FILE, index=False)
         else:
@@ -109,7 +109,7 @@ async def get_valid_symbols(exchange):
                 volume_usd = ticker.get('quoteVolume', 0)
                 if volume_usd >= MIN_VOLUME_USD:
                     valid_symbols.append(symbol)
-                await asyncio.sleep(0.05)  # Reduced delay
+                await asyncio.sleep(0.05)
             except Exception as e:
                 logger.error(f"Error fetching ticker for {symbol}: {e}")
                 continue
@@ -152,14 +152,12 @@ async def scan_symbols():
             return
 
         for symbol in symbols:
-            # Check cooldown period
             if symbol in last_signal_time:
                 last_time = last_signal_time[symbol]
                 if datetime.now(tz=pytz.timezone("Asia/Karachi")) < last_time + timedelta(minutes=COOLDOWN_MINUTES):
                     logger.info(f"[{symbol}] Skipped - In cooldown period")
                     continue
 
-            # Create a new exchange instance to avoid memory leaks
             exchange = ccxt.binance({
                 'apiKey': os.getenv("BINANCE_API_KEY"),
                 'secret': os.getenv("BINANCE_API_SECRET"),
@@ -182,7 +180,6 @@ async def scan_symbols():
                 )
 
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
-                    # Calculate support/resistance and other metrics
                     ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=50)
                     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
                     df = find_support_resistance(df)
@@ -191,7 +188,6 @@ async def scan_symbols():
                     atr = (df["high"] - df["low"]).rolling(window=14).mean().iloc[-1]
                     leverage = 10 if trade_type == "Scalp" else 5
 
-                    # Format message with emojis and PKT time
                     pk_time = datetime.now(tz=pytz.timezone("Asia/Karachi")).strftime("%Y-%m-%d %H:%M")
                     message = (
                         f"⚡ Trade Pair: {symbol}\n"
@@ -206,9 +202,7 @@ async def scan_symbols():
                         f"⏰ Time: {pk_time}"
                     )
                     await send_telegram_message(message)
-                    # Log signal to CSV
                     log_signal_to_csv(result, trade_type, atr, leverage, support, resistance, (support + resistance) / 2, direction)
-                    # Update last signal time
                     last_signal_time[symbol] = datetime.now(tz=pytz.timezone("Asia/Karachi"))
                     logger.info("✅ Signal SENT ✅")
                 elif confidence < CONFIDENCE_THRESHOLD:
@@ -217,13 +211,14 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
-                await asyncio.sleep(0.6)  # Delay to reduce API rate limits
-                df = None  # Clear DataFrame to free memory
+                await asyncio.sleep(0.6)
+                df = None
+                gc.collect()  # Clear memory
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
                 if "rate limit" in str(e).lower():
-                    await asyncio.sleep(5)  # Wait on rate limit error
+                    await asyncio.sleep(5)
                 logger.info(f"⚠️ Skipped {symbol} due to error, continuing to next symbol")
                 continue
             finally:
@@ -240,15 +235,15 @@ async def run_bot():
         try:
             await scan_symbols()
             logger.info(f"Completed one scan cycle, waiting {SCAN_INTERVAL_SECONDS/60} minutes for next scan")
-            await asyncio.sleep(SCAN_INTERVAL_SECONDS)  # Scan every 30 minutes
+            await asyncio.sleep(SCAN_INTERVAL_SECONDS)
         except Exception as e:
             logger.error(f"Error in run_bot: {e}")
-            await asyncio.sleep(10)  # Short delay on error
+            await asyncio.sleep(10)
 
 # Start scanner on app startup
 @app.on_event("startup")
 async def start_bot():
-    await asyncio.sleep(10)  # Delay to ensure app is fully initialized
+    await asyncio.sleep(10)
     asyncio.create_task(run_bot())
 
 # Run app
