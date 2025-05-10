@@ -19,7 +19,7 @@ class SignalPredictor:
             "bullish_engulfing", "bearish_engulfing", "doji",
             "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
         ]
-        self.min_confidence_threshold = 0.65  # Adjusted to 65%
+        self.min_confidence_threshold = 0.65
         self.last_signals = {}
         
         try:
@@ -71,32 +71,6 @@ class SignalPredictor:
         finally:
             gc.collect()
 
-    async def calculate_take_profits(self, df: pd.DataFrame, direction: str, current_price: float):
-        try:
-            atr = df["atr"].iloc[-1]
-            
-            if direction == "LONG":
-                tp1 = current_price + (0.15 * atr)
-                tp2 = current_price + (0.3 * atr)
-                tp3 = current_price + (0.45 * atr)
-                sl = current_price - (1.2 * atr)
-            else:  # SHORT
-                tp1 = current_price - (0.15 * atr)
-                tp2 = current_price - (0.3 * atr)
-                tp3 = current_price - (0.45 * atr)
-                sl = current_price + (1.2 * atr)
-            
-            if not all([tp1, tp2, tp3, sl]) or any(np.isclose([tp1, tp2, tp3, sl], current_price, rtol=1e-5)):
-                log("Invalid TP/SL values calculated", level="WARNING")
-                return None, None, None, None
-            
-            return tp1, tp2, tp3, sl
-        except Exception as e:
-            log(f"Error calculating TP/SL: {str(e)}", level="ERROR")
-            return None, None, None, None
-        finally:
-            gc.collect()
-
     async def predict_signal(self, symbol: str, df: pd.DataFrame, timeframe: str = "15m"):
         try:
             if self.model is None:
@@ -118,26 +92,30 @@ class SignalPredictor:
             prediction_proba = self.model.predict_proba(current_features)[0]
             prediction = self.model.predict(current_features)[0]
             
-            # Boost confidence with strict technical signals
+            # Convert float to bool for candlestick patterns
             is_bullish = (
-                features["bullish_engulfing"].iloc[-1] and
-                features["hammer"].iloc[-1] and
-                features["three_white_soldiers"].iloc[-1] and
-                (df["rsi"].iloc[-1] < 45 and df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])
+                (features["bullish_engulfing"].iloc[-1] > 0) &
+                (features["hammer"].iloc[-1] > 0) &
+                (features["three_white_soldiers"].iloc[-1] > 0) &
+                (df["rsi"].iloc[-1] < 45) &
+                (df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])
             )
             is_bearish = (
-                features["bearish_engulfing"].iloc[-1] and
-                features["shooting_star"].iloc[-1] and
-                features["three_black_crows"].iloc[-1] and
-                (df["rsi"].iloc[-1] > 55 and df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])
+                (features["bearish_engulfing"].iloc[-1] > 0) &
+                (features["shooting_star"].iloc[-1] > 0) &
+                (features["three_black_crows"].iloc[-1] > 0) &
+                (df["rsi"].iloc[-1] > 55) &
+                (df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])
             )
             
             direction = "LONG" if prediction == 1 else "SHORT"
             confidence = min(max(prediction_proba.max(), 0), 0.95) * 100
             
-            if (direction == "LONG" and is_bullish) or (direction == "SHORT" and is_bearish):
+            if is_bullish and direction == "LONG":
                 confidence = min(confidence + 25, 95)
-            elif (direction == "LONG" and is_bearish) or (direction == "SHORT" and is_bullish):
+            elif is_bearish and direction == "SHORT":
+                confidence = min(confidence + 25, 95)
+            elif (is_bullish and direction == "SHORT") or (is_bearish and direction == "LONG"):
                 confidence = max(confidence - 25, 0)
                 
             if confidence < self.min_confidence_threshold * 100:
@@ -145,13 +123,11 @@ class SignalPredictor:
                 return None
                 
             current_price = df["close"].iloc[-1]
-            
             tp1, tp2, tp3, sl = await self.calculate_take_profits(df, direction, current_price)
             if any(x is None for x in [tp1, tp2, tp3, sl]):
                 log(f"[{symbol}] Invalid TP/SL values", level="WARNING")
                 return None
                 
-            # Default TP hit rates (backtest removed)
             tp1_hit_rate, tp2_hit_rate, tp3_hit_rate = 0.75, 0.50, 0.25
             
             signal = {
@@ -182,3 +158,5 @@ class SignalPredictor:
             if 'features' in locals():
                 del features
             gc.collect()
+
+    # [Rest of the class remains unchanged]
