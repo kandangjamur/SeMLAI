@@ -36,7 +36,7 @@ class SignalPredictor:
 
     def prepare_features(self, df: pd.DataFrame):
         try:
-            feature_df = pd.DataFrame(index=df.index)
+            feature_df = pd.DataFrame(index=df.index, dtype="float32")
             
             for feature in ["rsi", "macd", "macd_signal", "bb_upper", "bb_lower", "atr", "volume"]:
                 if feature in df.columns:
@@ -79,15 +79,15 @@ class SignalPredictor:
             atr = df["atr"].iloc[-1]
             
             if direction == "LONG":
-                tp1 = current_price + (0.2 * atr)
-                tp2 = current_price + (0.4 * atr)
-                tp3 = current_price + (0.6 * atr)
-                sl = current_price - (1.5 * atr)
+                tp1 = current_price + (0.15 * atr)
+                tp2 = current_price + (0.3 * atr)
+                tp3 = current_price + (0.45 * atr)
+                sl = current_price - (1.2 * atr)
             else:  # SHORT
-                tp1 = current_price - (0.2 * atr)
-                tp2 = current_price - (0.4 * atr)
-                tp3 = current_price - (0.6 * atr)
-                sl = current_price + (1.5 * atr)
+                tp1 = current_price - (0.15 * atr)
+                tp2 = current_price - (0.3 * atr)
+                tp3 = current_price - (0.45 * atr)
+                sl = current_price + (1.2 * atr)
             
             if not all([tp1, tp2, tp3, sl]) or any(np.isclose([tp1, tp2, tp3, sl], current_price, rtol=1e-5)):
                 log("Invalid TP/SL values calculated", level="WARNING")
@@ -126,22 +126,22 @@ class SignalPredictor:
                 features["bullish_engulfing"].iloc[-1] or
                 features["hammer"].iloc[-1] or
                 features["three_white_soldiers"].iloc[-1] or
-                (df["rsi"].iloc[-1] < 30 and df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])
+                (df["rsi"].iloc[-1] < 35 and df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])  # Relaxed RSI
             )
             is_bearish = (
                 features["bearish_engulfing"].iloc[-1] or
                 features["shooting_star"].iloc[-1] or
                 features["three_black_crows"].iloc[-1] or
-                (df["rsi"].iloc[-1] > 70 and df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])
+                (df["rsi"].iloc[-1] > 65 and df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])  # Relaxed RSI
             )
             
             direction = "LONG" if prediction == 1 else "SHORT"
-            confidence = min(max(prediction_proba.max() * 100, 0), 95)  # Fixed range
+            confidence = min(max(prediction_proba.max(), 0), 0.95) * 100  # Fixed range
             
             if (direction == "LONG" and is_bullish) or (direction == "SHORT" and is_bearish):
-                confidence = min(confidence + 15, 95)  # Increased boost
+                confidence = min(confidence + 20, 95)  # Increased boost
             elif (direction == "LONG" and is_bearish) or (direction == "SHORT" and is_bullish):
-                confidence = max(confidence - 15, 0)
+                confidence = max(confidence - 20, 0)
                 
             if confidence < self.min_confidence_threshold * 100:
                 log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
@@ -181,5 +181,6 @@ class SignalPredictor:
             log(f"[{symbol}] Error predicting signal: {str(e)}", level="ERROR")
             return None
         finally:
-            del features
+            if 'features' in locals():
+                del features
             gc.collect()
