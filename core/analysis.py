@@ -9,7 +9,7 @@ import numpy as np
 import asyncio
 import gc
 
-# Global predictor instance to avoid reloading model for each symbol
+# Global predictor instance to avoid reloading model
 predictor = None
 
 async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "15m"):
@@ -17,7 +17,7 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
     try:
         log(f"[{symbol}] Starting analysis on {timeframe}")
         
-        # Initialize predictor only once
+        # Initialize predictor only once at startup
         if predictor is None:
             try:
                 predictor = SignalPredictor()
@@ -27,7 +27,7 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
                 return None
 
         # Fetch OHLCV data
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=30)  # Reduced limit
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=20)  # Reduced limit
         log(f"[{symbol}] Fetched {len(ohlcv)} OHLCV rows")
         
         df = pd.DataFrame(
@@ -73,15 +73,15 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
         
         # Calculate TP and SL levels
         if direction == "LONG":
-            tp1 = current_price + (0.2 * atr)
-            tp2 = current_price + (0.4 * atr)
-            tp3 = current_price + (0.6 * atr)
-            sl = current_price - (1.5 * atr)
+            tp1 = current_price + (0.15 * atr)  # Adjusted for higher TP1 hit rate
+            tp2 = current_price + (0.3 * atr)
+            tp3 = current_price + (0.45 * atr)
+            sl = current_price - (1.2 * atr)
         else:  # SHORT
-            tp1 = current_price - (0.2 * atr)
-            tp2 = current_price - (0.4 * atr)
-            tp3 = current_price - (0.6 * atr)
-            sl = current_price + (1.5 * atr)
+            tp1 = current_price - (0.15 * atr)
+            tp2 = current_price - (0.3 * atr)
+            tp3 = current_price - (0.45 * atr)
+            sl = current_price + (1.2 * atr)
 
         # Prepare result
         result = {
@@ -106,5 +106,6 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
         log(f"[{symbol}] Error in analysis: {e}", level="ERROR")
         return None
     finally:
-        del df
+        if 'df' in locals():
+            del df
         gc.collect()
