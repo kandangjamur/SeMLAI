@@ -129,39 +129,9 @@ class SignalPredictor:
             prediction_proba = self.model.predict_proba(current_features)[0]
             prediction = self.model.predict(current_features)[0]
             
-            # Simplified bullish/bearish conditions
-            is_bullish = (
-                features["bullish_engulfing"].iloc[-1] > 0 or
-                features["hammer"].iloc[-1] > 0 or
-                features["three_white_soldiers"].iloc[-1] > 0
-            ) and (
-                not pd.isna(df["rsi"].iloc[-1]) and df["rsi"].iloc[-1] < 45
-            ) and (
-                not pd.isna(df["macd"].iloc[-1]) and not pd.isna(df["macd_signal"].iloc[-1]) and
-                df["macd"].iloc[-1] > df["macd_signal"].iloc[-1]
-            )
-            
-            is_bearish = (
-                features["bearish_engulfing"].iloc[-1] > 0 or
-                features["shooting_star"].iloc[-1] > 0 or
-                features["three_black_crows"].iloc[-1] > 0
-            ) and (
-                not pd.isna(df["rsi"].iloc[-1]) and df["rsi"].iloc[-1] > 55
-            ) and (
-                not pd.isna(df["macd"].iloc[-1]) and not pd.isna(df["macd_signal"].iloc[-1]) and
-                df["macd"].iloc[-1] < df["macd_signal"].iloc[-1]
-            )
-            
             direction = "LONG" if prediction == 1 else "SHORT"
             confidence = min(max(prediction_proba.max(), 0), 0.95) * 100
             
-            if is_bullish and direction == "LONG":
-                confidence = min(confidence + 25, 95)
-            elif is_bearish and direction == "SHORT":
-                confidence = min(confidence + 25, 95)
-            elif (is_bullish and direction == "SHORT") or (is_bearish and direction == "LONG"):
-                confidence = max(confidence - 25, 0)
-                
             if confidence < self.min_confidence_threshold * 100:
                 log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
                 return None
