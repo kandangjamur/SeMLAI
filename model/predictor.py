@@ -16,8 +16,8 @@ class SignalPredictor:
     def __init__(self, model_path="models/rf_model.joblib"):
         self.model = None
         self.features = [
-            "rsi", "macd", "macd_signal", "bb_upper", "bb_lower", "atr", "volume",
-            "volume_sma_20", "bullish_engulfing", "bearish_engulfing", "doji",
+            "rsi", "macd", "macd_signal", "atr", "volume",
+            "bullish_engulfing", "bearish_engulfing", "doji",
             "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
         ]
         self.min_confidence_threshold = 0.70
@@ -38,14 +38,12 @@ class SignalPredictor:
         try:
             feature_df = pd.DataFrame(index=df.index, dtype="float32")
             
-            for feature in ["rsi", "macd", "macd_signal", "bb_upper", "bb_lower", "atr", "volume"]:
+            for feature in ["rsi", "macd", "macd_signal", "atr", "volume"]:
                 if feature in df.columns:
                     feature_df[feature] = df[feature]
                 else:
                     log(f"Feature {feature} not found in DataFrame", level="WARNING")
                     feature_df[feature] = 0.0
-            
-            feature_df["volume_sma_20"] = df["volume"].rolling(window=20).mean().fillna(0.0)
             
             feature_df["bullish_engulfing"] = is_bullish_engulfing(df).astype(float)
             feature_df["bearish_engulfing"] = is_bearish_engulfing(df).astype(float)
@@ -126,22 +124,22 @@ class SignalPredictor:
                 features["bullish_engulfing"].iloc[-1] or
                 features["hammer"].iloc[-1] or
                 features["three_white_soldiers"].iloc[-1] or
-                (df["rsi"].iloc[-1] < 35 and df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])  # Relaxed RSI
+                (df["rsi"].iloc[-1] < 40 and df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])
             )
             is_bearish = (
                 features["bearish_engulfing"].iloc[-1] or
                 features["shooting_star"].iloc[-1] or
                 features["three_black_crows"].iloc[-1] or
-                (df["rsi"].iloc[-1] > 65 and df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])  # Relaxed RSI
+                (df["rsi"].iloc[-1] > 60 and df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])
             )
             
             direction = "LONG" if prediction == 1 else "SHORT"
-            confidence = min(max(prediction_proba.max(), 0), 0.95) * 100  # Fixed range
+            confidence = min(max(prediction_proba.max(), 0), 0.95) * 100
             
             if (direction == "LONG" and is_bullish) or (direction == "SHORT" and is_bearish):
-                confidence = min(confidence + 20, 95)  # Increased boost
+                confidence = min(confidence + 25, 95)
             elif (direction == "LONG" and is_bearish) or (direction == "SHORT" and is_bullish):
-                confidence = max(confidence - 20, 0)
+                confidence = max(confidence - 25, 0)
                 
             if confidence < self.min_confidence_threshold * 100:
                 log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
