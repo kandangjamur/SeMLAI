@@ -28,10 +28,10 @@ load_dotenv()
 app = FastAPI()
 
 # Signal thresholds
-CONFIDENCE_THRESHOLD = 65  # Adjusted to 65% for tight thresholds
-TP1_POSSIBILITY_THRESHOLD = 0.65  # Adjusted to 65%
+CONFIDENCE_THRESHOLD = 65  # 65% for tight thresholds
+TP1_POSSIBILITY_THRESHOLD = 0.65  # 65%
 SCALPING_CONFIDENCE_THRESHOLD = 80
-MIN_VOLUME_USD = 1000000  # Increased to filter low liquidity coins
+MIN_VOLUME_USD = 1000000  # Filter low liquidity coins
 COOLDOWN_MINUTES = 30
 SCAN_INTERVAL_SECONDS = 1800
 
@@ -83,7 +83,7 @@ def log_signal_to_csv(signal, trade_type, atr, leverage, support, resistance, mi
             "status": "open"
         }
         df = pd.DataFrame([signal_data])
-        BACKTEST_FILE = "logs/signals_log_new.csv"  # New file to avoid old data
+        BACKTEST_FILE = "logs/signals_log_new.csv"
         if not os.path.exists(BACKTEST_FILE):
             df.to_csv(BACKTEST_FILE, index=False)
         else:
@@ -126,7 +126,7 @@ async def get_valid_symbols(exchange):
                 continue
         
         logger.info(f"Selected {len(valid_symbols)} USDT pairs with volume >= ${MIN_VOLUME_USD}")
-        return valid_symbols
+        return valid_symbols[:150]  # Limit to 150 symbols here
     except Exception as e:
         logger.error(f"Error fetching symbols: {e}")
         return []
@@ -165,8 +165,8 @@ async def scan_symbols():
             'secret': os.getenv("BINANCE_API_SECRET"),
             'enableRateLimit': True,
         })
-        valid_symbols = await get_valid_symbols(exchange)
-        symbols = valid_symbols[:150]  # Limit to 150 symbols to reduce CPU load
+        symbols = await get_valid_symbols(exchange)
+        logger.info(f"Scanning {len(symbols)} symbols (limited to 150)")
         if not symbols:
             logger.error("No valid USDT symbols found!")
             return
@@ -205,8 +205,8 @@ async def scan_symbols():
                 ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=50)
                 df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
                 df = find_support_resistance(df)
-                support = df["support"].iloc[-1] if "support" in df else 0.0
-                resistance = df["resistance"].iloc[-1] if "resistance" in df else 0.0
+                support = df["support"].iloc[-1] if "support" in df and not pd.isna(df["support"].iloc[-1]) else 0.0
+                resistance = df["resistance"].iloc[-1] if "resistance" in df and not pd.isna(df["resistance"].iloc[-1]) else 0.0
                 atr = (df["high"] - df["low"]).rolling(window=14).mean().iloc[-1]
                 leverage = 10 if trade_type == "Scalp" else 5
 
@@ -234,7 +234,7 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
-                await asyncio.sleep(1.0)  # Increased to 1.0 to reduce CPU load
+                await asyncio.sleep(1.0)  # Reduce CPU load
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
