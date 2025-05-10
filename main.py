@@ -11,7 +11,7 @@ import telegram
 from utils.support_resistance import find_support_resistance
 from utils.logger import log
 from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
+import pytz
 
 # Logging setup
 logging.basicConfig(
@@ -60,7 +60,7 @@ def log_signal_to_csv(signal, trade_type, atr, leverage, support, resistance, mi
             "price": signal["entry"],
             "confidence": signal["confidence"],
             "trade_type": trade_type,
-            "timestamp": pd.Timestamp.now(tz=ZoneInfo("Asia/Karachi")).isoformat(),
+            "timestamp": pd.Timestamp.now(tz=pytz.timezone("Asia/Karachi")).isoformat(),
             "tp1": signal["tp1"],
             "tp2": signal["tp2"],
             "tp3": signal["tp3"],
@@ -109,7 +109,7 @@ async def get_valid_symbols(exchange):
                 volume_usd = ticker.get('quoteVolume', 0)
                 if volume_usd >= MIN_VOLUME_USD:
                     valid_symbols.append(symbol)
-                await asyncio.sleep(0.05)  # Reduced delay for faster fetching
+                await asyncio.sleep(0.05)  # Reduced delay
             except Exception as e:
                 logger.error(f"Error fetching ticker for {symbol}: {e}")
                 continue
@@ -155,11 +155,11 @@ async def scan_symbols():
             # Check cooldown period
             if symbol in last_signal_time:
                 last_time = last_signal_time[symbol]
-                if datetime.now(tz=ZoneInfo("Asia/Karachi")) < last_time + timedelta(minutes=COOLDOWN_MINUTES):
+                if datetime.now(tz=pytz.timezone("Asia/Karachi")) < last_time + timedelta(minutes=COOLDOWN_MINUTES):
                     logger.info(f"[{symbol}] Skipped - In cooldown period")
                     continue
 
-            # Create a new exchange instance for each symbol to avoid memory leaks
+            # Create a new exchange instance to avoid memory leaks
             exchange = ccxt.binance({
                 'apiKey': os.getenv("BINANCE_API_KEY"),
                 'secret': os.getenv("BINANCE_API_SECRET"),
@@ -192,7 +192,7 @@ async def scan_symbols():
                     leverage = 10 if trade_type == "Scalp" else 5
 
                     # Format message with emojis and PKT time
-                    pk_time = datetime.now(tz=ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d %H:%M")
+                    pk_time = datetime.now(tz=pytz.timezone("Asia/Karachi")).strftime("%Y-%m-%d %H:%M")
                     message = (
                         f"⚡ Trade Pair: {symbol}\n"
                         f"📉 Trade Type: {trade_type}\n"
@@ -209,7 +209,7 @@ async def scan_symbols():
                     # Log signal to CSV
                     log_signal_to_csv(result, trade_type, atr, leverage, support, resistance, (support + resistance) / 2, direction)
                     # Update last signal time
-                    last_signal_time[symbol] = datetime.now(tz=ZoneInfo("Asia/Karachi"))
+                    last_signal_time[symbol] = datetime.now(tz=pytz.timezone("Asia/Karachi"))
                     logger.info("✅ Signal SENT ✅")
                 elif confidence < CONFIDENCE_THRESHOLD:
                     logger.info("⚠️ Skipped - Low confidence")
@@ -222,11 +222,10 @@ async def scan_symbols():
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
-                if "predict_signal" in str(e).lower() or "missing 1 required positional argument" in str(e).lower():
-                    logger.info(f"⚠️ Skipped {symbol} due to prediction error, continuing to next symbol")
-                    continue
                 if "rate limit" in str(e).lower():
                     await asyncio.sleep(5)  # Wait on rate limit error
+                logger.info(f"⚠️ Skipped {symbol} due to error, continuing to next symbol")
+                continue
             finally:
                 await exchange.close()
 
