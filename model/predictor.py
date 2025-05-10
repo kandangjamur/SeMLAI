@@ -44,7 +44,6 @@ class SignalPredictor:
             # Ensure technical indicators are pandas.Series
             for feature in ["rsi", "macd", "macd_signal", "atr", "volume"]:
                 if feature in df.columns:
-                    # Convert to pandas.Series if numpy array or scalar
                     feature_series = pd.Series(df[feature], index=df.index, dtype="float32")
                     feature_df[feature] = feature_series.fillna(0.0)
                 else:
@@ -130,24 +129,28 @@ class SignalPredictor:
             prediction_proba = self.model.predict_proba(current_features)[0]
             prediction = self.model.predict(current_features)[0]
             
-            # Strict bullish/bearish conditions with type checking
-            bullish_conditions = [
-                features["bullish_engulfing"].iloc[-1] > 0,
-                features["hammer"].iloc[-1] > 0,
-                features["three_white_soldiers"].iloc[-1] > 0,
-                df["rsi"].iloc[-1] < 45 if not pd.isna(df["rsi"].iloc[-1]) else False,
-                df["macd"].iloc[-1] > df["macd_signal"].iloc[-1] if not (pd.isna(df["macd"].iloc[-1]) or pd.isna(df["macd_signal"].iloc[-1])) else False
-            ]
-            bearish_conditions = [
-                features["bearish_engulfing"].iloc[-1] > 0,
-                features["shooting_star"].iloc[-1] > 0,
-                features["three_black_crows"].iloc[-1] > 0,
-                df["rsi"].iloc[-1] > 55 if not pd.isna(df["rsi"].iloc[-1]) else False,
-                df["macd"].iloc[-1] < df["macd_signal"].iloc[-1] if not (pd.isna(df["macd"].iloc[-1]) or pd.isna(df["macd_signal"].iloc[-1])) else False
-            ]
+            # Simplified bullish/bearish conditions
+            is_bullish = (
+                features["bullish_engulfing"].iloc[-1] > 0 or
+                features["hammer"].iloc[-1] > 0 or
+                features["three_white_soldiers"].iloc[-1] > 0
+            ) and (
+                not pd.isna(df["rsi"].iloc[-1]) and df["rsi"].iloc[-1] < 45
+            ) and (
+                not pd.isna(df["macd"].iloc[-1]) and not pd.isna(df["macd_signal"].iloc[-1]) and
+                df["macd"].iloc[-1] > df["macd_signal"].iloc[-1]
+            )
             
-            is_bullish = all(bullish_conditions)
-            is_bearish = all(bearish_conditions)
+            is_bearish = (
+                features["bearish_engulfing"].iloc[-1] > 0 or
+                features["shooting_star"].iloc[-1] > 0 or
+                features["three_black_crows"].iloc[-1] > 0
+            ) and (
+                not pd.isna(df["rsi"].iloc[-1]) and df["rsi"].iloc[-1] > 55
+            ) and (
+                not pd.isna(df["macd"].iloc[-1]) and not pd.isna(df["macd_signal"].iloc[-1]) and
+                df["macd"].iloc[-1] < df["macd_signal"].iloc[-1]
+            )
             
             direction = "LONG" if prediction == 1 else "SHORT"
             confidence = min(max(prediction_proba.max(), 0), 0.95) * 100
