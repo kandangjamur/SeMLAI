@@ -6,34 +6,28 @@ def find_support_resistance(df):
     try:
         df = df.copy()
         window = 5
-        # Ensure input data is valid
+        # Validate input data
         if df.empty or len(df) < window:
             log("Input DataFrame is empty or too small for support/resistance", level="ERROR")
+            df['support'] = df['low']
+            df['resistance'] = df['high']
             return df
         
         # Calculate support and resistance
         df['support'] = df['low'].rolling(window=window, min_periods=1).min()
         df['resistance'] = df['high'].rolling(window=window, min_periods=1).max()
         
-        # Robust NaN handling
-        if df['support'].isna().any():
-            df['support'] = df['low'].min()
-            log("Filled NaN in support with min low", level="INFO")
-        if df['resistance'].isna().any():
-            df['resistance'] = df['high'].max()
-            log("Filled NaN in resistance with max high", level="INFO")
-        
-        # Final fallback
-        if df['support'].isna().any() or df['resistance'].isna().any():
-            log("NaN values persist, using last known values", level="WARNING")
-            df['support'] = df['support'].fillna(df['low'].iloc[-1])
-            df['resistance'] = df['resistance'].fillna(df['high'].iloc[-1])
+        # Simplified NaN handling
+        df['support'] = df['support'].fillna(df['low'])
+        df['resistance'] = df['resistance'].fillna(df['high'])
         
         # Log final values
         log(f"Support/Resistance calculated: Last support={df['support'].iloc[-1]:.2f}, resistance={df['resistance'].iloc[-1]:.2f}")
         return df
     except Exception as e:
         log(f"Error in support/resistance calculation: {e}", level="ERROR")
+        df['support'] = df['low']
+        df['resistance'] = df['high']
         return df
 
 def detect_breakout(symbol, df):
@@ -47,8 +41,8 @@ def detect_breakout(symbol, df):
         support = df['support'].iloc[-1]
         resistance = df['resistance'].iloc[-1]
         
-        # Ensure valid values
-        if pd.isna(support) or pd.isna(resistance) or pd.isna(current_price) or pd.isna(prev_price):
+        # Validate values
+        if any(pd.isna(x) for x in [current_price, prev_price, support, resistance]):
             log(f"[{symbol}] Invalid values: support={support}, resistance={resistance}, current_price={current_price}, prev_price={prev_price}", level="WARNING")
             return {"is_breakout": False, "direction": "none"}
         
