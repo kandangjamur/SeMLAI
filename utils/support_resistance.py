@@ -7,8 +7,17 @@ def find_support_resistance(df):
         window = 5
         df['support'] = df['low'].rolling(window=window, center=True).min()
         df['resistance'] = df['high'].rolling(window=window, center=True).max()
-        df['support'] = df['support'].fillna(method='ffill').fillna(method='bfill')
-        df['resistance'] = df['resistance'].fillna(method='ffill').fillna(method='bfill')
+        
+        # Fill NaN values with nearest available values
+        df['support'] = df['support'].ffill().bfill()
+        df['resistance'] = df['resistance'].ffill().bfill()
+        
+        # If still NaN, use min and max of the entire series
+        if df['support'].isna().any():
+            df['support'] = df['low'].min()
+        if df['resistance'].isna().any():
+            df['resistance'] = df['high'].max()
+        
         return df
     except Exception as e:
         print(f"Error in support/resistance calculation: {e}")
