@@ -1,7 +1,6 @@
 import ccxt.async_support as ccxt
 import pandas as pd
 from core.indicators import calculate_indicators
-from data.backtest import get_tp_hit_rates
 from model.predictor import SignalPredictor
 from utils.support_resistance import detect_breakout
 from utils.logger import log
@@ -47,13 +46,9 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
             log(f"[{symbol}] Failed to calculate indicators", level="WARNING")
             return None
         
-        # Get TP hit rates
-        try:
-            tp1_possibility, tp2_possibility, tp3_possibility = await get_tp_hit_rates(symbol, timeframe)
-        except Exception as e:
-            log(f"[{symbol}] Error getting TP hit rates: {e}", level="ERROR")
-            return None
-        log(f"[{symbol}] TP hit rates - TP1: {tp1_possibility:.2%}, TP2: {tp2_possibility:.2%}, TP3: {tp3_possibility:.2%}")
+        # Set default TP hit rates (backtest removed)
+        tp1_possibility, tp2_possibility, tp3_possibility = 0.75, 0.50, 0.25
+        log(f"[{symbol}] Default TP hit rates - TP1: {tp1_possibility:.2%}, TP2: {tp2_possibility:.2%}, TP3: {tp3_possibility:.2%}")
 
         # Detect breakout
         breakout = detect_breakout(symbol, df)
