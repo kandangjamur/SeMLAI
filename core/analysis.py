@@ -26,7 +26,7 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
                 return None
 
         # Fetch OHLCV data
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=50)  # Reduced limit to save memory
         log(f"[{symbol}] Fetched {len(ohlcv)} OHLCV rows")
         
         df = pd.DataFrame(
@@ -57,7 +57,7 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
         else:
             # Predict signal
             try:
-                signal = await predictor.predict_signal(df)
+                signal = predictor.predict_signal(df)  # Fixed to pass df
                 direction = signal["direction"]
                 confidence = signal["confidence"]
             except Exception as e:
