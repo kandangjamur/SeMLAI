@@ -71,6 +71,8 @@ class SignalPredictor:
         except Exception as e:
             log(f"Error preparing features: {str(e)}", level="ERROR")
             return None
+        finally:
+            gc.collect()
 
     async def calculate_take_profits(self, df: pd.DataFrame, direction: str, current_price: float):
         try:
@@ -95,6 +97,8 @@ class SignalPredictor:
         except Exception as e:
             log(f"Error calculating TP/SL: {str(e)}", level="ERROR")
             return None, None, None, None
+        finally:
+            gc.collect()
 
     async def predict_signal(self, symbol: str, df: pd.DataFrame, timeframe: str = "15m"):
         try:
@@ -132,12 +136,12 @@ class SignalPredictor:
             )
             
             direction = "LONG" if prediction == 1 else "SHORT"
-            confidence = min(max(prediction_proba.max() * 100, 0), 95)
+            confidence = min(max(prediction_proba.max() * 100, 0), 95)  # Fixed range
             
             if (direction == "LONG" and is_bullish) or (direction == "SHORT" and is_bearish):
-                confidence = min(confidence + 10, 95)
+                confidence = min(confidence + 15, 95)  # Increased boost
             elif (direction == "LONG" and is_bearish) or (direction == "SHORT" and is_bullish):
-                confidence = max(confidence - 10, 0)
+                confidence = max(confidence - 15, 0)
                 
             if confidence < self.min_confidence_threshold * 100:
                 log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
@@ -177,4 +181,5 @@ class SignalPredictor:
             log(f"[{symbol}] Error predicting signal: {str(e)}", level="ERROR")
             return None
         finally:
+            del features
             gc.collect()
