@@ -35,23 +35,30 @@ class SignalPredictor:
 
     def prepare_features(self, df: pd.DataFrame):
         try:
+            if df.empty or len(df) < 2:
+                log("Input DataFrame is empty or too small for feature preparation", level="ERROR")
+                return None
+
             feature_df = pd.DataFrame(index=df.index, dtype="float32")
             
+            # Ensure technical indicators are pandas.Series
             for feature in ["rsi", "macd", "macd_signal", "atr", "volume"]:
-                if feature in df.columns and not df[feature].isna().all():
-                    feature_df[feature] = df[feature].fillna(0.0)
+                if feature in df.columns:
+                    # Convert to pandas.Series if numpy array or scalar
+                    feature_series = pd.Series(df[feature], index=df.index, dtype="float32")
+                    feature_df[feature] = feature_series.fillna(0.0)
                 else:
-                    log(f"Feature {feature} not found or all NaN in DataFrame", level="WARNING")
+                    log(f"Feature {feature} not found in DataFrame", level="WARNING")
                     feature_df[feature] = 0.0
             
             # Calculate candlestick patterns
-            feature_df["bullish_engulfing"] = is_bullish_engulfing(df).astype(float).fillna(0.0)
-            feature_df["bearish_engulfing"] = is_bearish_engulfing(df).astype(float).fillna(0.0)
-            feature_df["doji"] = is_doji(df).astype(float).fillna(0.0)
-            feature_df["hammer"] = is_hammer(df).astype(float).fillna(0.0)
-            feature_df["shooting_star"] = is_shooting_star(df).astype(float).fillna(0.0)
-            feature_df["three_white_soldiers"] = is_three_white_soldiers(df).astype(float).fillna(0.0)
-            feature_df["three_black_crows"] = is_three_black_crows(df).astype(float).fillna(0.0)
+            feature_df["bullish_engulfing"] = pd.Series(is_bullish_engulfing(df), index=df.index, dtype="float32").fillna(0.0)
+            feature_df["bearish_engulfing"] = pd.Series(is_bearish_engulfing(df), index=df.index, dtype="float32").fillna(0.0)
+            feature_df["doji"] = pd.Series(is_doji(df), index=df.index, dtype="float32").fillna(0.0)
+            feature_df["hammer"] = pd.Series(is_hammer(df), index=df.index, dtype="float32").fillna(0.0)
+            feature_df["shooting_star"] = pd.Series(is_shooting_star(df), index=df.index, dtype="float32").fillna(0.0)
+            feature_df["three_white_soldiers"] = pd.Series(is_three_white_soldiers(df), index=df.index, dtype="float32").fillna(0.0)
+            feature_df["three_black_crows"] = pd.Series(is_three_black_crows(df), index=df.index, dtype="float32").fillna(0.0)
             
             for feature in self.features:
                 if feature not in feature_df.columns:
