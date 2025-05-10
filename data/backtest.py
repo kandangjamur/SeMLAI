@@ -12,57 +12,57 @@ import gc
 
 async def get_tp_hit_rates(symbol: str, timeframe: str):
     try:
-        exchange = ccxt.binance()
+        # Check if backtest data exists
         backtest_file = "logs/signals_log.csv"
-        if not pd.io.common.file_exists(backtest_file):
-            log(f"[{symbol}] No backtest data found, fetching historical data", level="INFO")
-            return await fetch_historical_hit_rates(exchange, symbol, timeframe)
+        if pd.io.common.file_exists(backtest_file):
+            df = pd.read_csv(backtest_file)
+            df = df[df["symbol"] == symbol]
+            
+            if len(df) >= 10:
+                tp1_hits = 0
+                tp2_hits = 0
+                tp3_hits = 0
+                total_trades = len(df)
+                
+                for _, row in df.iterrows():
+                    if row["prediction"] == "LONG":
+                        if row["price"] <= row["tp1"]:
+                            tp1_hits += 1
+                        if row["price"] <= row["tp2"]:
+                            tp2_hits += 1
+                        if row["price"] <= row["tp3"]:
+                            tp3_hits += 1
+                    else:  # SHORT
+                        if row["price"] >= row["tp1"]:
+                            tp1_hits += 1
+                        if row["price"] >= row["tp2"]:
+                            tp2_hits += 1
+                        if row["price"] >= row["tp3"]:
+                            tp3_hits += 1
+                
+                tp1_rate = min(tp1_hits / total_trades if total_trades > 0 else 0.0, 0.95)
+                tp2_rate = min(tp2_hits / total_trades if total_trades > 0 else 0.0, 0.85)
+                tp3_rate = min(tp3_hits / total_trades if total_trades > 0 else 0.0, 0.75)
+                
+                log(f"[{symbol}] Backtest TP1 hit rate: {tp1_rate:.2%}, TP2: {tp2_rate:.2%}, TP3: {tp3_rate:.2%}")
+                return tp1_rate, tp2_rate, tp3_rate
 
-        df = pd.read_csv(backtest_file)
-        df = df[df["symbol"] == symbol]
-        
-        if len(df) < 10:
-            log(f"[{symbol}] Insufficient backtest data: {len(df)} trades, fetching historical data", level="INFO")
+        # Fetch historical data if insufficient backtest data
+        log(f"[{symbol}] Insufficient backtest data, fetching historical data", level="INFO")
+        exchange = ccxt.binance()
+        try:
             return await fetch_historical_hit_rates(exchange, symbol, timeframe)
-        
-        tp1_hits = 0
-        tp2_hits = 0
-        tp3_hits = 0
-        total_trades = len(df)
-        
-        for _, row in df.iterrows():
-            if row["prediction"] == "LONG":
-                if row["price"] <= row["tp1"]:
-                    tp1_hits += 1
-                if row["price"] <= row["tp2"]:
-                    tp2_hits += 1
-                if row["price"] <= row["tp3"]:
-                    tp3_hits += 1
-            else:  # SHORT
-                if row["price"] >= row["tp1"]:
-                    tp1_hits += 1
-                if row["price"] >= row["tp2"]:
-                    tp2_hits += 1
-                if row["price"] >= row["tp3"]:
-                    tp3_hits += 1
-        
-        tp1_rate = min(tp1_hits / total_trades if total_trades > 0 else 0.0, 0.95)
-        tp2_rate = min(tp2_hits / total_trades if total_trades > 0 else 0.0, 0.85)
-        tp3_rate = min(tp3_hits / total_trades if total_trades > 0 else 0.0, 0.75)
-        
-        log(f"[{symbol}] Backtest TP1 hit rate: {tp1_rate:.2%}, TP2: {tp2_rate:.2%}, TP3: {tp3_rate:.2%}")
-        return tp1_rate, tp2_rate, tp3_rate
+        finally:
+            await exchange.close()
+            gc.collect()
     
     except Exception as e:
         log(f"[{symbol}] Error in get_tp_hit_rates: {e}", level="ERROR")
         return 0.0, 0.0, 0.0
-    finally:
-        await exchange.close()
-        gc.collect()
 
 async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
     try:
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=100)  # Reduced to 100
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=50)  # Reduced to 50
         log(f"[{symbol}] Fetched {len(ohlcv)} klines from Binance")
         
         df = pd.DataFrame(
@@ -105,7 +105,7 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
             )
             
             if is_bullish:
-                tp1 = current_price + (0.2 * atr)  # Further adjusted
+                tp1 = current_price + (0.2 * atr)
                 tp2 = current_price + (0.4 * atr)
                 tp3 = current_price + (0.6 * atr)
                 
@@ -141,5 +141,5 @@ async def fetch_historical_hit_rates(exchange, symbol: str, timeframe: str):
         log(f"[{symbol}] Error fetching historical hit rates: {e}", level="ERROR")
         return 0.0, 0.0, 0.0
     finally:
-        await exchange.close()
+        del df
         gc.collect()
