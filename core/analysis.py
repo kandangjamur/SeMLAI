@@ -7,6 +7,7 @@ from utils.support_resistance import detect_breakout
 from utils.logger import log
 import numpy as np
 import asyncio
+import gc
 
 # Global predictor instance to avoid reloading model for each symbol
 predictor = None
@@ -26,7 +27,7 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
                 return None
 
         # Fetch OHLCV data
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=50)  # Reduced limit
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=50)
         log(f"[{symbol}] Fetched {len(ohlcv)} OHLCV rows")
         
         df = pd.DataFrame(
@@ -53,7 +54,7 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
         breakout = detect_breakout(symbol, df)
         if breakout["is_breakout"]:
             direction = "LONG" if breakout["direction"] == "up" else "SHORT"
-            confidence = 0.9  # High confidence for breakout
+            confidence = 0.9
         else:
             # Predict signal
             try:
@@ -105,4 +106,5 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
         log(f"[{symbol}] Error in analysis: {e}", level="ERROR")
         return None
     finally:
-        df = None  # Clear DataFrame to free memory
+        df = None
+        gc.collect()  # Clear memory
