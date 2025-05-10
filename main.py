@@ -26,8 +26,8 @@ load_dotenv()
 app = FastAPI()
 
 # Signal thresholds
-CONFIDENCE_THRESHOLD = 60  # Reduced to 60% for more signals
-TP1_POSSIBILITY_THRESHOLD = 0.65  # 65% for more signals
+CONFIDENCE_THRESHOLD = 70  # 70% for high confidence signals
+TP1_POSSIBILITY_THRESHOLD = 0.70  # 70% for accurate signals
 SCALPING_CONFIDENCE_THRESHOLD = 85  # Below this is Scalping Trade
 BACKTEST_FILE = "logs/signals_log.csv"
 MIN_VOLUME_USD = 500000  # Minimum 24h volume in USD
@@ -181,7 +181,7 @@ async def scan_symbols():
 
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
                     # Calculate support/resistance and other metrics
-                    ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=100)
+                    ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=50)  # Reduced limit
                     df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
                     df = find_support_resistance(df)
                     support = df["support"].iloc[-1] if "support" in df else 0.0
@@ -213,10 +213,13 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
-                await asyncio.sleep(0.3)  # Increased delay to avoid API rate limits
+                await asyncio.sleep(0.5)  # Increased delay to avoid API rate limits
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
+                if "predict_signal" in str(e).lower() or "missing 1 required positional argument" in str(e).lower():
+                    logger.info(f"⚠️ Skipped {symbol} due to prediction error, continuing to next symbol")
+                    continue  # Skip to next symbol on predict_signal error
                 if "rate limit" in str(e).lower():
                     await asyncio.sleep(5)  # Wait on rate limit error
             finally:
