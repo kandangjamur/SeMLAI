@@ -18,7 +18,7 @@ class SignalPredictor:
             "volume_sma_20", "bullish_engulfing", "bearish_engulfing", "doji",
             "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
         ]
-        self.min_confidence_threshold = 0.70  # Adjusted to match main.py
+        self.min_confidence_threshold = 0.70  # Match main.py
         self.last_signals = {}  # Store last signal timestamp per symbol and timeframe
         
         try:
@@ -79,21 +79,19 @@ class SignalPredictor:
 
     async def calculate_take_profits(self, df: pd.DataFrame, direction: str, current_price: float):
         try:
-            # Use ATR for more realistic TP/SL
             atr = df["atr"].iloc[-1]
             
             if direction == "LONG":
-                tp1 = current_price + (0.5 * atr)
-                tp2 = current_price + (1.0 * atr)
-                tp3 = current_price + (1.5 * atr)
+                tp1 = current_price + (0.3 * atr)  # Adjusted for higher hit rate
+                tp2 = current_price + (0.6 * atr)
+                tp3 = current_price + (0.9 * atr)
                 sl = current_price - (1.5 * atr)
             else:  # SHORT
-                tp1 = current_price - (0.5 * atr)
-                tp2 = current_price - (1.0 * atr)
-                tp3 = current_price - (1.5 * atr)
+                tp1 = current_price - (0.3 * atr)
+                tp2 = current_price - (0.6 * atr)
+                tp3 = current_price - (0.9 * atr)
                 sl = current_price + (1.5 * atr)
             
-            # Ensure TP/SL are valid
             if not all([tp1, tp2, tp3, sl]) or any(np.isclose([tp1, tp2, tp3, sl], current_price, rtol=1e-5)):
                 log("Invalid TP/SL values calculated", level="WARNING")
                 return None, None, None, None
@@ -127,10 +125,29 @@ class SignalPredictor:
             prediction_proba = self.model.predict_proba(current_features)[0]
             prediction = self.model.predict(current_features)[0]
             
-            # Determine direction and confidence
+            # Boost confidence with technical signals
+            is_bullish = (
+                is_bullish_engulfing(df)[-1] or
+                is_hammer(df)[-1] or
+                is_three_white_soldiers(df)[-1] or
+                (df["rsi"].iloc[-1] < 30 and df["macd"].iloc[-1] > df["macd_signal"].iloc[-1])
+            )
+            is_bearish = (
+                is_bearish_engulfing(df)[-1] or
+                is_shooting_star(df)[-1] or
+                is_three_black_crows(df)[-1] or
+                (df["rsi"].iloc[-1] > 70 and df["macd"].iloc[-1] < df["macd_signal"].iloc[-1])
+            )
+            
             direction = "LONG" if prediction == 1 else "SHORT"
             confidence = min(max(prediction_proba.max() * 100, 0), 95)
             
+            # Adjust confidence based on technical signals
+            if (direction == "LONG" and is_bullish) or (direction == "SHORT" and is_bearish):
+                confidence = min(confidence + 10, 95)  # Boost confidence
+            elif (direction == "LONG" and is_bearish) or (direction == "SHORT" and is_bullish):
+                confidence = max(confidence - 10, 0)  # Reduce confidence
+                
             if confidence < self.min_confidence_threshold * 100:
                 log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
                 return None
@@ -161,7 +178,7 @@ class SignalPredictor:
                 "tp2_possibility": tp2_hit_rate,
                 "tp3_possibility": tp3_hit_rate,
                 "timeframe": timeframe,
-                "timestamp": pd.Timestamp.now(tz=ZoneInfo("Asia/Karachi")).isoformat()
+                "timestamp": pd.Timestamp.now(tz=pytz.timezone("Asia/Karachi")).isoformat()
             }
             
             # Update last signal time
