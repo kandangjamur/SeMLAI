@@ -165,7 +165,8 @@ async def scan_symbols():
             'secret': os.getenv("BINANCE_API_SECRET"),
             'enableRateLimit': True,
         })
-        symbols = await get_valid_symbols(exchange)
+        valid_symbols = await get_valid_symbols(exchange)
+        symbols = valid_symbols[:150]  # Limit to 150 symbols to reduce CPU load
         if not symbols:
             logger.error("No valid USDT symbols found!")
             return
@@ -233,7 +234,7 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
-                await asyncio.sleep(0.5)  # Reduced CPU load
+                await asyncio.sleep(1.0)  # Increased to 1.0 to reduce CPU load
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
