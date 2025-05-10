@@ -27,7 +27,7 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
                 return None
 
         # Fetch OHLCV data
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=50)
+        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=30)  # Reduced limit
         log(f"[{symbol}] Fetched {len(ohlcv)} OHLCV rows")
         
         df = pd.DataFrame(
@@ -73,15 +73,15 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
         
         # Calculate TP and SL levels
         if direction == "LONG":
-            tp1 = current_price * 1.02
-            tp2 = current_price * 1.04
-            tp3 = current_price * 1.06
-            sl = current_price - (2 * atr)
+            tp1 = current_price + (0.2 * atr)
+            tp2 = current_price + (0.4 * atr)
+            tp3 = current_price + (0.6 * atr)
+            sl = current_price - (1.5 * atr)
         else:  # SHORT
-            tp1 = current_price * 0.98
-            tp2 = current_price * 0.96
-            tp3 = current_price * 0.94
-            sl = current_price + (2 * atr)
+            tp1 = current_price - (0.2 * atr)
+            tp2 = current_price - (0.4 * atr)
+            tp3 = current_price - (0.6 * atr)
+            sl = current_price + (1.5 * atr)
 
         # Prepare result
         result = {
@@ -106,5 +106,5 @@ async def analyze_symbol(exchange: ccxt.binance, symbol: str, timeframe: str = "
         log(f"[{symbol}] Error in analysis: {e}", level="ERROR")
         return None
     finally:
-        df = None
-        gc.collect()  # Clear memory
+        del df
+        gc.collect()
