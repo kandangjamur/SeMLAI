@@ -32,6 +32,7 @@ SCALPING_CONFIDENCE_THRESHOLD = 85  # Below this is Scalping Trade
 BACKTEST_FILE = "logs/signals_log.csv"
 MIN_VOLUME_USD = 500000  # Minimum 24h volume in USD
 COOLDOWN_MINUTES = 30  # Cooldown period for same symbol signals
+SCAN_INTERVAL_SECONDS = 1800  # Scan all symbols every 30 minutes
 
 # Track last signal time for each symbol
 last_signal_time = {}
@@ -107,7 +108,7 @@ async def get_valid_symbols(exchange):
                 volume_usd = ticker.get('quoteVolume', 0)
                 if volume_usd >= MIN_VOLUME_USD:
                     valid_symbols.append(symbol)
-                await asyncio.sleep(0.1)  # Delay to avoid API rate limits
+                await asyncio.sleep(0.05)  # Reduced delay for faster symbol fetching
             except Exception as e:
                 logger.error(f"Error fetching ticker for {symbol}: {e}")
                 continue
@@ -213,7 +214,8 @@ async def scan_symbols():
                     logger.info("⚠️ Skipped - Low TP1 possibility")
 
                 logger.info("---")
-                await asyncio.sleep(0.5)  # Increased delay to avoid API rate limits
+                await asyncio.sleep(0.6)  # Increased delay to reduce API rate limits and CPU usage
+                df = None  # Clear DataFrame to free memory
 
             except Exception as e:
                 logger.error(f"Error processing {symbol}: {e}")
@@ -235,10 +237,11 @@ async def run_bot():
     while True:
         try:
             await scan_symbols()
+            logger.info(f"Completed one scan cycle, waiting {SCAN_INTERVAL_SECONDS/60} minutes for next scan")
+            await asyncio.sleep(SCAN_INTERVAL_SECONDS)  # Scan every 30 minutes for multiple daily scans
         except Exception as e:
             logger.error(f"Error in run_bot: {e}")
             await asyncio.sleep(10)  # Short delay on error
-        await asyncio.sleep(60)  # Scan every 60 seconds
 
 # Start scanner on app startup
 @app.on_event("startup")
