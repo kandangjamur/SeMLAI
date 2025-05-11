@@ -17,7 +17,8 @@ class SignalPredictor:
         self.features = [
             "rsi", "macd", "macd_signal", "atr", "volume",
             "bullish_engulfing", "bearish_engulfing", "doji",
-            "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
+            "hammer", "shooting_star", "three_white_soldiers", "three_black_crows",
+            "bb_lower", "bb_upper", "volume_sma_20"
         ]
         self.min_confidence_threshold = 0.65
         self.last_signals = {}
@@ -42,7 +43,7 @@ class SignalPredictor:
             feature_df = pd.DataFrame(index=df.index, dtype="float32")
             
             # Technical indicators
-            for feature in ["rsi", "macd", "macd_signal", "atr", "volume"]:
+            for feature in ["rsi", "macd", "macd_signal", "atr", "volume", "bb_lower", "bb_upper", "volume_sma_20"]:
                 if feature in df.columns:
                     feature_df[feature] = pd.Series(df[feature].values, index=df.index, dtype="float32").fillna(0.0)
                 else:
