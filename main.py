@@ -7,7 +7,7 @@ from typing import List, Dict
 from core.analysis import analyze_symbol_multi_timeframe
 from predictors.random_forest import RandomForestPredictor
 from utils.notifications import send_telegram_message
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Configure logging
 logging.basicConfig(
@@ -29,10 +29,14 @@ SYMBOL_LIMIT = 150
 TIMEFRAMES = ["15m", "1h", "4h", "1d"]
 MIN_VOLUME = 1000000  # Minimum 24h volume in USD
 CONFIDENCE_THRESHOLD = 60.0  # For combined signal
+COOLDOWN_PERIOD = 4 * 3600  # 4 hours in seconds
 
 # Initialize predictor
 predictor = RandomForestPredictor()
 log.info("Random Forest model loaded successfully")
+
+# Cooldown tracking
+cooldowns = {}  # {symbol: timestamp}
 
 async def fetch_ohlcv(symbol: str, timeframe: str, limit: int = 50) -> pd.DataFrame:
     try:
@@ -67,6 +71,15 @@ async def save_signal_to_csv(signal: Dict):
         log.error(f"Error saving signal to CSV: {str(e)}")
 
 async def process_symbol(symbol: str):
+    log.info(f"[{symbol}] Checking for cooldown")
+    
+    # Check if symbol is in cooldown
+    if symbol in cooldowns:
+        cooldown_end = cooldowns[symbol] + timedelta(seconds=COOLDOWN_PERIOD)
+        if datetime.utcnow() < cooldown_end:
+            log.info(f"[{symbol}] In cooldown until {cooldown_end}")
+            return
+    
     log.info(f"[{symbol}] Starting multi-timeframe analysis")
     
     # Fetch data for all timeframes
@@ -83,9 +96,13 @@ async def process_symbol(symbol: str):
         return
     
     # Analyze across all timeframes
-    signal = await analyze_symbol_multi_timeframe(symbol, timeframe_data, predictor)
+    signal = awaits analyze_symbol_multi_timeframe(symbol, timeframe_data, predictor)
     
     if signal:
+        # Add to cooldown
+        cooldowns[symbol] = datetime.utcnow()
+        log.info(f"[{symbol}] Added to cooldown for {COOLDOWN_PERIOD/3600} hours")
+        
         message = (
             f"🔍 {signal['symbol']} | Confidence: {signal['confidence']:.2f} | "
             f"Direction: {signal['direction']} | TP1 Chance: {signal['tp1_possibility']:.2f}"
