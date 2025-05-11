@@ -1,9 +1,9 @@
 import pandas as pd
-     import numpy as np
-     from sklearn.ensemble import RandomForestClassifier
-     import joblib
-     import os
-     from core.candle_patterns import (
+import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+import joblib
+import os
+from core.candle_patterns import (
          is_bullish_engulfing, is_bearish_engulfing, is_doji, is_hammer, is_shooting_star,
          is_three_white_soldiers, is_three_black_crows
      )
