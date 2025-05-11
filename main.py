@@ -20,9 +20,9 @@ app = FastAPI()
 predictor = None
 binance = None
 symbols = []
-MINIMUM_DAILY_VOLUME = 5000000  # $5M for high liquidity
-SYMBOL_LIMIT = 30  # Scan only top 30 symbols
-COOLDOWN_MINUTES = 15  # Cooldown period after a signal
+MINIMUM_DAILY_VOLUME = 1000000  # $5M for high liquidity
+SYMBOL_LIMIT = 200  # Scan only top 30 symbols
+COOLDOWN_MINUTES = 120  # Cooldown period after a signal
 
 # Store last signal timestamp for each symbol
 last_signal_times = {}
