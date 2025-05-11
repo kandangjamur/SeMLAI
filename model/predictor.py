@@ -35,29 +35,23 @@ class SignalPredictor:
 
     def prepare_features(self, df: pd.DataFrame):
         try:
-            if df.empty or len(df) < 2:
-                log("Input DataFrame is empty or too small for feature preparation", level="ERROR")
-                return None
-
             feature_df = pd.DataFrame(index=df.index, dtype="float32")
             
-            # Ensure technical indicators are pandas.Series
             for feature in ["rsi", "macd", "macd_signal", "atr", "volume"]:
-                if feature in df.columns:
-                    feature_series = pd.Series(df[feature], index=df.index, dtype="float32")
-                    feature_df[feature] = feature_series.fillna(0.0)
+                if feature in df.columns and not df[feature].isna().all():
+                    feature_df[feature] = df[feature].fillna(0.0)
                 else:
-                    log(f"Feature {feature} not found in DataFrame", level="WARNING")
+                    log(f"Feature {feature} not found or all NaN in DataFrame", level="WARNING")
                     feature_df[feature] = 0.0
             
             # Calculate candlestick patterns
-            feature_df["bullish_engulfing"] = pd.Series(is_bullish_engulfing(df), index=df.index, dtype="float32").fillna(0.0)
-            feature_df["bearish_engulfing"] = pd.Series(is_bearish_engulfing(df), index=df.index, dtype="float32").fillna(0.0)
-            feature_df["doji"] = pd.Series(is_doji(df), index=df.index, dtype="float32").fillna(0.0)
-            feature_df["hammer"] = pd.Series(is_hammer(df), index=df.index, dtype="float32").fillna(0.0)
-            feature_df["shooting_star"] = pd.Series(is_shooting_star(df), index=df.index, dtype="float32").fillna(0.0)
-            feature_df["three_white_soldiers"] = pd.Series(is_three_white_soldiers(df), index=df.index, dtype="float32").fillna(0.0)
-            feature_df["three_black_crows"] = pd.Series(is_three_black_crows(df), index=df.index, dtype="float32").fillna(0.0)
+            feature_df["bullish_engulfing"] = is_bullish_engulfing(df).astype(float).fillna(0.0)
+            feature_df["bearish_engulfing"] = is_bearish_engulfing(df).astype(float).fillna(0.0)
+            feature_df["doji"] = is_doji(df).astype(float).fillna(0.0)
+            feature_df["hammer"] = is_hammer(df).astype(float).fillna(0.0)
+            feature_df["shooting_star"] = is_shooting_star(df).astype(float).fillna(0.0)
+            feature_df["three_white_soldiers"] = is_three_white_soldiers(df).astype(float).fillna(0.0)
+            feature_df["three_black_crows"] = is_three_black_crows(df).astype(float).fillna(0.0)
             
             for feature in self.features:
                 if feature not in feature_df.columns:
@@ -129,9 +123,35 @@ class SignalPredictor:
             prediction_proba = self.model.predict_proba(current_features)[0]
             prediction = self.model.predict(current_features)[0]
             
+            # Strict bullish/bearish conditions with type checking
+            bullish_conditions = [
+                features["bullish_engulfing"].iloc[-1] > 0,
+                features["hammer"].iloc[-1] > 0,
+                features["three_white_soldiers"].iloc[-1] > 0,
+                df["rsi"].iloc[-1] < 45 if not pd.isna(df["rsi"].iloc[-1]) else False,
+                df["macd"].iloc[-1] > df["macd_signal"].iloc[-1] if not (pd.isna(df["macd"].iloc[-1]) or pd.isna(df["macd_signal"].iloc[-1])) else False
+            ]
+            bearish_conditions = [
+                features["bearish_engulfing"].iloc[-1] > 0,
+                features["shooting_star"].iloc[-1] > 0,
+                features["three_black_crows"].iloc[-1] > 0,
+                df["rsi"].iloc[-1] > 55 if not pd.isna(df["rsi"].iloc[-1]) else False,
+                df["macd"].iloc[-1] < df["macd_signal"].iloc[-1] if not (pd.isna(df["macd"].iloc[-1]) or pd.isna(df["macd_signal"].iloc[-1])) else False
+            ]
+            
+            is_bullish = all(bullish_conditions)
+            is_bearish = all(bearish_conditions)
+            
             direction = "LONG" if prediction == 1 else "SHORT"
             confidence = min(max(prediction_proba.max(), 0), 0.95) * 100
             
+            if is_bullish and direction == "LONG":
+                confidence = min(confidence + 25, 95)
+            elif is_bearish and direction == "SHORT":
+                confidence = min(confidence + 25, 95)
+            elif (is_bullish and direction == "SHORT") or (is_bearish and direction == "LONG"):
+                confidence = max(confidence - 25, 0)
+                
             if confidence < self.min_confidence_threshold * 100:
                 log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
                 return None
