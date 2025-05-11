@@ -22,6 +22,10 @@ binance = None
 symbols = []
 MINIMUM_DAILY_VOLUME = 1000000
 SYMBOL_LIMIT = 150
+COOLDOWN_MINUTES = 120  # Cooldown period after a signal (15 minutes)
+
+# Store last signal timestamp for each symbol
+last_signal_times = {}
 
 async def initialize():
     global predictor, binance, symbols
@@ -102,16 +106,26 @@ async def log_signal(signal):
 async def trading_loop():
     while True:
         try:
+            current_time = pd.Timestamp.now(tz=pytz.timezone("Asia/Karachi"))
             for symbol in symbols:
+                # Check if symbol is in cooldown
+                if symbol in last_signal_times:
+                    time_since_last_signal = (current_time - last_signal_times[symbol]).total_seconds() / 60
+                    if time_since_last_signal < COOLDOWN_MINUTES:
+                        log(f"[{symbol}] In cooldown, skipping analysis", level="INFO")
+                        continue
+                
                 try:
                     signal = await analyze_symbol(symbol, binance, predictor)
                     if signal:
                         log(f"🔍 {signal['symbol']} | Confidence: {signal['confidence']:.2f} | Direction: {signal['direction']} | TP1 Chance: {signal['tp1_possibility']:.2f}", level="INFO")
-                        signal['timestamp'] = pd.Timestamp.now(tz=pytz.timezone("Asia/Karachi")).isoformat()
+                        signal['timestamp'] = current_time.isoformat()
                         await send_telegram_message(signal)
                         await log_signal(signal)
                         log("✅ Signal SENT ✅", level="INFO")
                         log("---", level="INFO")
+                        # Update last signal time
+                        last_signal_times[symbol] = current_time
                     else:
                         log(f"⚠️ {symbol} - No valid signal", level="INFO")
                 except Exception as e:
