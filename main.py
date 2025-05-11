@@ -1,161 +1,134 @@
 import asyncio
+import logging
+import pandas as pd
 import ccxt.async_support as ccxt
 from fastapi import FastAPI
-import pandas as pd
-import numpy as np
-from model.predictor import SignalPredictor
-from utils.support_resistance import find_support_resistance, detect_breakout
-from utils.logger import log
-from core.analysis import analyze_symbol
-import httpx
-import os
-import logging
-import warnings
-import gc
+from typing import List, Dict
+from core.analysis import analyze_symbol_multi_timeframe
+from predictors.random_forest import RandomForestPredictor
+from utils.notifications import send_telegram_message
 from datetime import datetime
-import pytz
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
+    handlers=[
+        logging.FileHandler('logs/bot.log'),
+        logging.StreamHandler()
+    ]
+)
+log = logging.getLogger("crypto-signal-bot")
+
+# FastAPI app
 app = FastAPI()
 
-predictor = None
-binance = None
-symbols = []
-MINIMUM_DAILY_VOLUME = 1000000  # $5M for high liquidity
-SYMBOL_LIMIT = 200  # Scan only top 30 symbols
-COOLDOWN_MINUTES = 120  # Cooldown period after a signal
+# Configuration
+EXCHANGE = ccxt.binance()
+SYMBOL_LIMIT = 150
+TIMEFRAMES = ["15m", "1h", "4h", "1d"]
+MIN_VOLUME = 1000000  # Minimum 24h volume in USD
+CONFIDENCE_THRESHOLD = 60.0  # For combined signal
 
-# Store last signal timestamp for each symbol
-last_signal_times = {}
+# Initialize predictor
+predictor = RandomForestPredictor()
+log.info("Random Forest model loaded successfully")
 
-async def initialize():
-    global predictor, binance, symbols
+async def fetch_ohlcv(symbol: str, timeframe: str, limit: int = 50) -> pd.DataFrame:
     try:
-        predictor = SignalPredictor()
-        binance = ccxt.binance({
-            'apiKey': os.getenv('BINANCE_API_KEY'),
-            'secret': os.getenv('BINANCE_API_SECRET'),
-            'enableRateLimit': True,
-        })
-        await binance.load_markets()
-        log("Binance API connection successful.", level="INFO")
-        
-        markets = await binance.fetch_markets()
-        usdt_pairs = [market['symbol'] for market in markets if market['quote'] == 'USDT']
-        
-        ticker_data = await asyncio.gather(*[binance.fetch_ticker(symbol) for symbol in usdt_pairs], return_exceptions=True)
-        symbols = []
-        for ticker in ticker_data:
-            if isinstance(ticker, Exception):
-                log(f"Error fetching ticker for a symbol: {str(ticker)}", level="WARNING")
-                continue
-            if ticker.get('quoteVolume') is not None and ticker.get('close') is not None:
-                if ticker['quoteVolume'] * ticker['close'] >= MINIMUM_DAILY_VOLUME:
-                    symbols.append(ticker['symbol'])
-        
-        symbols = symbols[:SYMBOL_LIMIT]
-        log(f"Selected {len(symbols)} USDT pairs with volume >= ${MINIMUM_DAILY_VOLUME}", level="INFO")
-        log(f"Scanning {len(symbols)} symbols (limited to {SYMBOL_LIMIT})", level="INFO")
+        ohlcv = await EXCHANGE.fetch_ohlcv(symbol, timeframe, limit=limit)
+        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+        return df
     except Exception as e:
-        log(f"Error during initialization: {str(e)}", level="ERROR")
-        raise
-    finally:
-        gc.collect()
+        log.error(f"[{symbol}] Error fetching OHLCV for {timeframe}: {str(e)}")
+        return pd.DataFrame()
 
-async def send_telegram_message(signal):
+async def get_high_volume_symbols() -> List[str]:
     try:
-        async with httpx.AsyncClient() as client:
-            message = (
-                f"⚡ Trade Pair: {signal['symbol']}\n"
-                f"📉 Trade Type: Normal\n"
-                f"🎯 Direction: {signal['direction']}\n"
-                f"🚀 Entry: {signal['entry']:.4f}\n"
-                f"🎯 TP1: {signal['tp1']:.4f} ({signal['tp1_possibility']*100:.1f}%)\n"
-                f"💰 TP2: {signal['tp2']:.4f} ({signal['tp2_possibility']*100:.1f}%)\n"
-                f"📈 TP3: {signal['tp3']:.4f} ({signal['tp3_possibility']*100:.1f}%)\n"
-                f"🛡️ SL: {signal['sl']:.4f}\n"
-                f"📊 Confidence: {signal['confidence']:.2f}%"
-            )
-            payload = {
-                "chat_id": os.getenv("TELEGRAM_CHAT_ID"),
-                "text": message,
-                "parse_mode": "Markdown"
-            }
-            response = await client.post(
-                f"https://api.telegram.org/bot{os.getenv('TELEGRAM_BOT_TOKEN')}/sendMessage",
-                json=payload
-            )
-            response.raise_for_status()
-            log("Telegram message sent successfully.", level="INFO")
+        await EXCHANGE.load_markets()
+        tickers = await EXCHANGE.fetch_tickers()
+        symbols = [
+            symbol for symbol, ticker in tickers.items()
+            if symbol.endswith('/USDT') and ticker.get('quoteVolume', 0) >= MIN_VOLUME
+        ]
+        log.info(f"Selected {len(symbols)} USDT pairs with volume >= ${MIN_VOLUME}")
+        return symbols[:SYMBOL_LIMIT]
     except Exception as e:
-        log(f"Error sending Telegram message: {str(e)}", level="ERROR")
+        log.error(f"Error fetching symbols: {str(e)}")
+        return []
 
-async def log_signal(signal):
+async def save_signal_to_csv(signal: Dict):
     try:
-        log_dir = "logs"
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        
-        log_file = os.path.join(log_dir, "signals_log_new.csv")
-        # Remove timestamp from signal data
-        signal_data = signal.copy()
-        signal_data.pop('timestamp', None)  # Remove timestamp if it exists
-        signal_df = pd.DataFrame([signal_data])
-        signal_df.to_csv(log_file, mode='a', header=not os.path.exists(log_file), index=False)
-        log(f"Signal logged to {log_file}", level="INFO")
+        df = pd.DataFrame([signal])
+        df.to_csv('logs/signals_log_new.csv', mode='a', index=False, header=not pd.io.common.file_exists('logs/signals_log_new.csv'))
+        log.info("Signal logged to logs/signals_log_new.csv")
     except Exception as e:
-        log(f"Error logging signal: {str(e)}", level="ERROR")
+        log.error(f"Error saving signal to CSV: {str(e)}")
 
-async def trading_loop():
-    while True:
-        try:
-            current_time = pd.Timestamp.now(tz=pytz.timezone("Asia/Karachi"))
-            for symbol in symbols:
-                # Check if symbol is in cooldown
-                if symbol in last_signal_times:
-                    time_since_last_signal = (current_time - last_signal_times[symbol]).total_seconds() / 60
-                    if time_since_last_signal < COOLDOWN_MINUTES:
-                        log(f"[{symbol}] In cooldown, skipping analysis", level="INFO")
-                        continue
-                
-                try:
-                    signal = await analyze_symbol(symbol, binance, predictor)
-                    if signal:
-                        log(f"🔍 {signal['symbol']} | Confidence: {signal['confidence']:.2f} | Direction: {signal['direction']} | TP1 Chance: {signal['tp1_possibility']:.2f}", level="INFO")
-                        await send_telegram_message(signal)
-                        await log_signal(signal)
-                        log("✅ Signal SENT ✅", level="INFO")
-                        log("---", level="INFO")
-                        # Update last signal time
-                        last_signal_times[symbol] = current_time
-                    else:
-                        log(f"⚠️ {symbol} - No valid signal", level="INFO")
-                except Exception as e:
-                    log(f"Error analyzing {symbol}: {str(e)}", level="ERROR")
-                finally:
-                    gc.collect()
-            await asyncio.sleep(300)  # Scan every 5 minutes
-        except Exception as e:
-            log(f"Error in trading loop: {str(e)}", level="ERROR")
-            await asyncio.sleep(300)
+async def process_symbol(symbol: str):
+    log.info(f"[{symbol}] Starting multi-timeframe analysis")
+    
+    # Fetch data for all timeframes
+    timeframe_data = {}
+    for timeframe in TIMEFRAMES:
+        df = await fetch_ohlcv(symbol, timeframe)
+        if not df.empty:
+            timeframe_data[timeframe] = df
+        else:
+            log.warning(f"[{symbol}] No OHLCV data for {timeframe}")
+    
+    if not timeframe_data:
+        log.warning(f"[{symbol}] No data available for any timeframe")
+        return
+    
+    # Analyze across all timeframes
+    signal = await analyze_symbol_multi_timeframe(symbol, timeframe_data, predictor)
+    
+    if signal:
+        message = (
+            f"🔍 {signal['symbol']} | Confidence: {signal['confidence']:.2f} | "
+            f"Direction: {signal['direction']} | TP1 Chance: {signal['tp1_possibility']:.2f}"
+        )
+        await send_telegram_message(message)
+        log.info(f"[{signal['symbol']}] Telegram message sent successfully")
+        await save_signal_to_csv(signal)
+        log.info(f"✅ Signal SENT ✅")
+    else:
+        log.info(f"⚠️ {symbol} - No valid signal")
+
+async def scan_symbols():
+    log.info(f"Scanning {SYMBOL_LIMIT} symbols across {TIMEFRAMES}")
+    symbols = await get_high_volume_symbols()
+    
+    for symbol in symbols:
+        await process_symbol(symbol)
+        await asyncio.sleep(0.5)  # Prevent API rate limit issues
+    await asyncio.sleep(60)  # Wait before next scan
 
 @app.on_event("startup")
 async def startup_event():
-    await initialize()
-    asyncio.create_task(trading_loop())
-
-@app.get("/health")
-async def health_check():
-    if predictor is not None and binance is not None and symbols:
-        return {"status": "healthy"}
-    return {"status": "unhealthy"}, 503
+    log.info("Starting bot...")
+    try:
+        await EXCHANGE.load_markets()
+        log.info("Binance API connection successful")
+        while True:
+            await scan_symbols()
+            log.info("Scan complete, waiting for next cycle...")
+            await asyncio.sleep(60)  # Run every minute
+    except Exception as e:
+        log.error(f"Error in startup: {str(e)}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    log("Shutting down", level="INFO")
-    if binance:
-        try:
-            await binance.close()
-            log("Binance connection closed successfully.", level="INFO")
-        except Exception as e:
-            log(f"Error closing Binance connection: {str(e)}", level="ERROR")
-    log("Application shutdown complete.", level="INFO")
+    log.info("Shutting down")
+    await EXCHANGE.close()
+    log.info("Binance connection closed successfully")
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
