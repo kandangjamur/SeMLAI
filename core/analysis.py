@@ -14,6 +14,9 @@ async def analyze_symbol(symbol: str, df: pd.DataFrame, timeframe: str, predicto
     try:
         # Calculate technical indicators
         df = calculate_indicators(df)
+        if df is None:
+            log.error(f"[{symbol}] Failed to calculate indicators")
+            return None
         log.info(f"[{symbol}] Indicators calculated: RSI, MACD, ATR, Volume, Bollinger Bands, Volume SMA 20")
         
         # Calculate support and resistance
@@ -30,13 +33,6 @@ async def analyze_symbol(symbol: str, df: pd.DataFrame, timeframe: str, predicto
             'atr': df['atr'].iloc[-1],
             'volume': df['volume'].iloc[-1],
             'volume_sma_20': df['volume_sma_20'].iloc[-1],
-            'bullish_engulfing': df['bullish_engulfing'].iloc[-1],
-            'bearish_engulfing': df['bearish_engulfing'].iloc[-1],
-            'doji': df['doji'].iloc[-1],
-            'hammer': df['hammer'].iloc[-1],
-            'shooting_star': df['shooting_star'].iloc[-1],
-            'three_white_soldiers': df['three_white_soldiers'].iloc[-1],
-            'three_black_crows': df['three_black_crows'].iloc[-1],
         }
         log.info(f"[{symbol}] Features prepared: {features}")
         
