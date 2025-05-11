@@ -186,7 +186,7 @@ async def scan_symbols():
             })
             df = None
             try:
-                result = await analyzeocomplete_symbol(exchange, symbol)
+                result = await analyze_symbol(exchange, symbol)
                 if not result or not isinstance(result, dict):
                     logger.info(f"⚠️ {symbol} - No valid signal")
                     continue
@@ -214,7 +214,7 @@ async def scan_symbols():
                 resistance = df["resistance"].iloc[-1] if "resistance" in df and not pd.isna(df["resistance"].iloc[-1]) else df["high"].iloc[-1]
                 atr = (df["high"] - df["low"]).rolling(window=14).mean().iloc[-1]
                 if pd.isna(atr) or atr <= 0:
-                    logger.warning(f"[{symbol]] Invalid ATR, skipping")
+                    logger.warning(f"[{symbol}] Invalid ATR, skipping")
                     continue
                 leverage = 10 if trade_type == "Scalp" else 5
 
