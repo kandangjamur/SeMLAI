@@ -6,7 +6,6 @@ from utils.logger import log
 import gc
 
 async def analyze_symbol(symbol: str, exchange, predictor, timeframe: str = "15m"):
-    global predictor
     try:
         log(f"[{symbol}] Starting analysis on {timeframe}", level="INFO")
         
