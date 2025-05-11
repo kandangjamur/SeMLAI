@@ -1,12 +1,12 @@
 import ccxt.async_support as ccxt
-import pandas as pd
-from core.indicators import calculate_indicators
-from model.predictor import SignalPredictor
-from utils.support_resistance import detect_breakout, find_support_resistance
-from utils.logger import log
-import numpy as np
-import asyncio
-import gc
+     import pandas as pd
+     from core.indicators import calculate_indicators
+     from model.predictor import SignalPredictor
+     from utils.support_resistance import detect_breakout, find_support_resistance
+     from utils.logger import log
+     import numpy as np
+     import asyncio
+     import gc
 
      predictor = None
 
