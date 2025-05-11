@@ -6,6 +6,19 @@ from utils.logger import log
 import gc
 
 async def analyze_symbol(symbol: str, exchange, predictor, timeframe: str = "15m"):
+    """
+    Analyze a symbol and generate a trading signal based on technical indicators,
+    support/resistance, and breakout detection.
+    
+    Args:
+        symbol (str): Trading pair (e.g., BTC/USDT)
+        exchange: CCXT exchange instance
+        predictor: SignalPredictor instance
+        timeframe (str): Timeframe for analysis (default: 15m)
+    
+    Returns:
+        dict: Signal details or None if no valid signal
+    """
     try:
         log(f"[{symbol}] Starting analysis on {timeframe}", level="INFO")
         
@@ -54,12 +67,12 @@ async def analyze_symbol(symbol: str, exchange, predictor, timeframe: str = "15m
         else:
             direction = signal["direction"]
             confidence = signal["confidence"]
-            # Dynamic TP possibilities based on confidence (lowered threshold to 50%)
-            tp1_possibility = min(0.75 + (confidence / 100 - 0.50) * 0.15, 0.90)
-            tp2_possibility = min(0.50 + (confidence / 100 - 0.50) * 0.20, 0.75)
-            tp3_possibility = min(0.25 + (confidence / 100 - 0.50) * 0.25, 0.60)
+            # Dynamic TP possibilities based on confidence (threshold raised to 75%)
+            tp1_possibility = min(0.80 + (confidence / 100 - 0.75) * 0.15, 0.95)
+            tp2_possibility = min(0.60 + (confidence / 100 - 0.75) * 0.20, 0.80)
+            tp3_possibility = min(0.40 + (confidence / 100 - 0.75) * 0.25, 0.65)
             # Skip if confidence is too low
-            if confidence < 50.0:
+            if confidence < 75.0:
                 log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
                 return None
 
