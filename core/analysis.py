@@ -54,10 +54,14 @@ async def analyze_symbol(symbol: str, exchange, predictor, timeframe: str = "15m
         else:
             direction = signal["direction"]
             confidence = signal["confidence"]
-            # Dynamic TP possibilities based on confidence
-            tp1_possibility = min(0.75 + (confidence / 100 - 0.65) * 0.15, 0.90)
-            tp2_possibility = min(0.50 + (confidence / 100 - 0.65) * 0.20, 0.75)
-            tp3_possibility = min(0.25 + (confidence / 100 - 0.65) * 0.25, 0.60)
+            # Dynamic TP possibilities based on confidence (lowered threshold to 50%)
+            tp1_possibility = min(0.75 + (confidence / 100 - 0.50) * 0.15, 0.90)
+            tp2_possibility = min(0.50 + (confidence / 100 - 0.50) * 0.20, 0.75)
+            tp3_possibility = min(0.25 + (confidence / 100 - 0.50) * 0.25, 0.60)
+            # Skip if confidence is too low
+            if confidence < 50.0:
+                log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
+                return None
 
         current_price = df["close"].iloc[-1]
         atr = df["atr"].iloc[-1]
