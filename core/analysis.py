@@ -1,7 +1,7 @@
 import logging
 import pandas as pd
 from typing import Optional, Dict
-from utils.indicators import calculate_indicators
+from core.indicators import calculate_indicators
 from utils.support_resistance import detect_breakout, calculate_support_resistance
 from predictors.random_forest import RandomForestPredictor
 from datetime import datetime
