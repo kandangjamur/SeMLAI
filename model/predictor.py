@@ -14,11 +14,12 @@ import gc
 class SignalPredictor:
     def __init__(self, model_path="models/rf_model.joblib"):
         self.model = None
+        # Updated feature list to match the order expected by rf_model.joblib
         self.features = [
-            "rsi", "macd", "macd_signal", "atr", "volume",
+            "rsi", "macd", "macd_signal", "atr", "volume", 
+            "bb_lower", "bb_upper", "volume_sma_20",
             "bullish_engulfing", "bearish_engulfing", "doji",
-            "hammer", "shooting_star", "three_white_soldiers", "three_black_crows",
-            "bb_lower", "bb_upper", "volume_sma_20"
+            "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
         ]
         self.min_confidence_threshold = 0.65
         self.last_signals = {}
@@ -27,6 +28,13 @@ class SignalPredictor:
             if os.path.exists(model_path):
                 self.model = joblib.load(model_path)
                 log("Random Forest model loaded successfully")
+                # Verify feature order matches model
+                if hasattr(self.model, 'feature_names_in_'):
+                    expected_features = list(self.model.feature_names_in_)
+                    if expected_features != self.features:
+                        log(f"Feature order mismatch! Model expects: {expected_features}", level="WARNING")
+                        self.features = expected_features
+                        log(f"Updated feature list to: {self.features}")
             else:
                 log(f"Model file not found at {model_path}", level="ERROR")
                 raise FileNotFoundError(f"Model file {model_path} not found")
