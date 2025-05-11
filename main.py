@@ -126,7 +126,7 @@ async def get_valid_symbols(exchange):
                 continue
         
         logger.info(f"Selected {len(valid_symbols)} USDT pairs with volume >= ${MIN_VOLUME_USD}")
-        return valid_symbols[:150]  # Limit to 150 symbols
+        return valid_symbols[:150]  # Limit to 150 symbols here
     except Exception as e:
         logger.error(f"Error fetching symbols: {e}")
         return []
@@ -187,7 +187,7 @@ async def scan_symbols():
             df = None
             try:
                 result = await analyze_symbol(exchange, symbol)
-                if not result or not isinstance(result, dict):
+                if not result:
                     logger.info(f"⚠️ {symbol} - No valid signal")
                     continue
 
@@ -204,18 +204,10 @@ async def scan_symbols():
                 # Fetch OHLCV for support/resistance
                 ohlcv = await exchange.fetch_ohlcv(symbol, result["timeframe"], limit=50)
                 df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
-                if df.empty or len(df) < 10:
-                    logger.warning(f"[{symbol}] Insufficient OHLCV data, skipping")
-                    continue
                 df = find_support_resistance(df)
-                
-                # Ensure support/resistance are valid
-                support = df["support"].iloc[-1] if "support" in df and not pd.isna(df["support"].iloc[-1]) else df["low"].iloc[-1]
-                resistance = df["resistance"].iloc[-1] if "resistance" in df and not pd.isna(df["resistance"].iloc[-1]) else df["high"].iloc[-1]
+                support = df["support"].iloc[-1] if "support" in df and not pd.isna(df["support"].iloc[-1]) else 0.0
+                resistance = df["resistance"].iloc[-1] if "resistance" in df and not pd.isna(df["resistance"].iloc[-1]) else 0.0
                 atr = (df["high"] - df["low"]).rolling(window=14).mean().iloc[-1]
-                if pd.isna(atr) or atr <= 0:
-                    logger.warning(f"[{symbol}] Invalid ATR, skipping")
-                    continue
                 leverage = 10 if trade_type == "Scalp" else 5
 
                 if confidence >= CONFIDENCE_THRESHOLD and tp1_possibility >= TP1_POSSIBILITY_THRESHOLD:
