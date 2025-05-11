@@ -14,12 +14,10 @@ import gc
 class SignalPredictor:
     def __init__(self, model_path="models/rf_model.joblib"):
         self.model = None
-        # Updated feature list to match the order expected by rf_model.joblib
         self.features = [
-            "rsi", "macd", "macd_signal", "atr", "volume", 
-            "bb_lower", "bb_upper", "volume_sma_20",
-            "bullish_engulfing", "bearish_engulfing", "doji",
-            "hammer", "shooting_star", "three_white_soldiers", "three_black_crows"
+            "rsi", "macd", "macd_signal", "bb_upper", "bb_lower", "atr", "volume", "volume_sma_20",
+            "bullish_engulfing", "bearish_engulfing", "doji", "hammer", "shooting_star",
+            "three_white_soldiers", "three_black_crows"
         ]
         self.min_confidence_threshold = 0.65
         self.last_signals = {}
@@ -28,7 +26,6 @@ class SignalPredictor:
             if os.path.exists(model_path):
                 self.model = joblib.load(model_path)
                 log("Random Forest model loaded successfully")
-                # Verify feature order matches model
                 if hasattr(self.model, 'feature_names_in_'):
                     expected_features = list(self.model.feature_names_in_)
                     if expected_features != self.features:
@@ -50,7 +47,6 @@ class SignalPredictor:
 
             feature_df = pd.DataFrame(index=df.index, dtype="float32")
             
-            # Technical indicators
             for feature in ["rsi", "macd", "macd_signal", "atr", "volume", "bb_lower", "bb_upper", "volume_sma_20"]:
                 if feature in df.columns:
                     feature_df[feature] = pd.Series(df[feature].values, index=df.index, dtype="float32").fillna(0.0)
@@ -58,7 +54,6 @@ class SignalPredictor:
                     log(f"Feature {feature} not found in DataFrame", level="WARNING")
                     feature_df[feature] = pd.Series(0.0, index=df.index, dtype="float32")
             
-            # Candlestick patterns
             candle_patterns = {
                 "bullish_engulfing": is_bullish_engulfing,
                 "bearish_engulfing": is_bearish_engulfing,
@@ -71,7 +66,6 @@ class SignalPredictor:
             for name, func in candle_patterns.items():
                 try:
                     result = func(df)
-                    # Ensure result is a pandas Series
                     if not isinstance(result, pd.Series):
                         result = pd.Series(result, index=df.index, dtype="float32")
                     feature_df[name] = result.fillna(0.0).astype("float32")
@@ -79,7 +73,6 @@ class SignalPredictor:
                     log(f"Error calculating {name}: {e}", level="WARNING")
                     feature_df[name] = pd.Series(0.0, index=df.index, dtype="float32")
             
-            # Ensure all features exist
             for feature in self.features:
                 if feature not in feature_df.columns:
                     feature_df[feature] = pd.Series(0.0, index=df.index, dtype="float32")
@@ -149,7 +142,7 @@ class SignalPredictor:
             prediction = self.model.predict(current_features)[0]
             
             direction = "LONG" if prediction == 1 else "SHORT"
-            confidence = min(max(prediction_proba.max(), 0), 0.95) * 100
+            confidence = min(max(prediction_proba.max() * 100, 0), 100)  # Fixed confidence calculation
             
             if confidence < self.min_confidence_threshold * 100:
                 log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
@@ -162,7 +155,12 @@ class SignalPredictor:
                 log(f"[{symbol}] Invalid TP/SL values", level="WARNING")
                 return None
                 
-            tp1_hit_rate, tp2_hit_rate, tp3_hit_rate = 0.75, 0.50, 0.25
+            # Dynamic TP hit rates based on confidence and ATR
+            atr = df["atr"].iloc[-1]
+            atr_factor = min(atr / current_price, 1.0)  # Normalize ATR relative to price
+            tp1_hit_rate = min(0.75 + (confidence / 100 - 0.65) * 0.15 - atr_factor * 0.1, 0.90)
+            tp2_hit_rate = min(0.50 + (confidence / 100 - 0.65) * 0.20 - atr_factor * 0.15, 0.75)
+            tp3_hit_rate = min(0.25 + (confidence / 100 - 0.65) * 0.25 - atr_factor * 0.2, 0.60)
             
             signal = {
                 "symbol": symbol,
@@ -173,16 +171,16 @@ class SignalPredictor:
                 "tp3": round(tp3, 4),
                 "sl": round(sl, 4),
                 "confidence": confidence,
-                "tp1_possibility": tp1_hit_rate,
-                "tp2_possibility": tp2_hit_rate,
-                "tp3_possibility": tp3_hit_rate,
+                "tp1_possibility": round(tp1_hit_rate, 2),
+                "tp2_possibility": round(tp2_hit_rate, 2),
+                "tp3_possibility": round(tp3_hit_rate, 2),
                 "timeframe": timeframe,
                 "timestamp": pd.Timestamp.now(tz=pytz.timezone("Asia/Karachi")).isoformat()
             }
             
             self.last_signals[signal_key] = pd.Timestamp.now()
             
-            log(f"[{symbol}] Signal generated - Direction: {direction}, Confidence: {confidence:.2f}%")
+            log(f"[{symbol}] Signal generated - Direction: {direction}, Confidence: {confidence:.2f}%, TP1: {tp1_hit_rate:.2f}, TP2: {tp2_hit_rate:.2f}, TP3: {tp3_hit_rate:.2f}")
             return signal
         except Exception as e:
             log(f"[{symbol}] Error predicting signal: {str(e)}", level="ERROR")
