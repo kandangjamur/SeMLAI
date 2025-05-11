@@ -96,7 +96,7 @@ async def process_symbol(symbol: str):
         return
     
     # Analyze across all timeframes
-    signal = awaits analyze_symbol_multi_timeframe(symbol, timeframe_data, predictor)
+    signal = await analyze_symbol_multi_timeframe(symbol, timeframe_data, predictor)
     
     if signal:
         # Add to cooldown
