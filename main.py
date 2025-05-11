@@ -38,11 +38,15 @@ async def initialize():
         markets = await binance.fetch_markets()
         usdt_pairs = [market['symbol'] for market in markets if market['quote'] == 'USDT']
         
-        ticker_data = await asyncio.gather(*[binance.fetch_ticker(symbol) for symbol in usdt_pairs])
-        symbols = [
-            ticker['symbol'] for ticker in ticker_data
-            if ticker['quoteVolume'] * ticker['close'] >= MINIMUM_DAILY_VOLUME
-        ]
+        ticker_data = await asyncio.gather(*[binance.fetch_ticker(symbol) for symbol in usdt_pairs], return_exceptions=True)
+        symbols = []
+        for ticker in ticker_data:
+            if isinstance(ticker, Exception):
+                log(f"Error fetching ticker for a symbol: {str(ticker)}", level="WARNING")
+                continue
+            if ticker.get('quoteVolume') is not None and ticker.get('close') is not None:
+                if ticker['quoteVolume'] * ticker['close'] >= MINIMUM_DAILY_VOLUME:
+                    symbols.append(ticker['symbol'])
         
         symbols = symbols[:SYMBOL_LIMIT]
         log(f"Selected {len(symbols)} USDT pairs with volume >= ${MINIMUM_DAILY_VOLUME}", level="INFO")
@@ -126,11 +130,17 @@ async def startup_event():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    if predictor is not None and binance is not None and symbols:
+        return {"status": "healthy"}
+    return {"status": "unhealthy"}, 503
 
 @app.on_event("shutdown")
 async def shutdown_event():
     log("Shutting down", level="INFO")
     if binance:
-        await binance.close()
+        try:
+            await binance.close()
+            log("Binance connection closed successfully.", level="INFO")
+        except Exception as e:
+            log(f"Error closing Binance connection: {str(e)}", level="ERROR")
     log("Application shutdown complete.", level="INFO")
