@@ -4,7 +4,7 @@ from fastapi import FastAPI
 import pandas as pd
 import numpy as np
 from model.predictor import SignalPredictor
-from utils.support_resistance import calculate_support_resistance
+from utils.support_resistance import find_support_resistance, detect_breakout
 from utils.logger import log
 from core.analysis import analyze_symbol
 import httpx
@@ -103,6 +103,7 @@ async def trading_loop():
                     signal = await analyze_symbol(symbol, binance, predictor)
                     if signal:
                         log(f"🔍 {signal['symbol']} | Confidence: {signal['confidence']:.2f} | Direction: {signal['direction']} | TP1 Chance: {signal['tp1_possibility']:.2f}", level="INFO")
+                        signal['timestamp'] = pd.Timestamp.now(tz=pytz.timezone("Asia/Karachi")).isoformat()
                         await send_telegram_message(signal)
                         await log_signal(signal)
                         log("✅ Signal SENT ✅", level="INFO")
