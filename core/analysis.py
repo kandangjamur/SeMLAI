@@ -1,65 +1,56 @@
+import logging
 import pandas as pd
-import numpy as np
-from core.indicators import calculate_indicators
-from utils.support_resistance import find_support_resistance, detect_breakout
-from utils.logger import log
-import gc
+from typing import Optional, Dict
+from utils.indicators import calculate_indicators
+from utils.support_resistance import detect_breakout, calculate_support_resistance
+from predictors.random_forest import RandomForestPredictor
+from datetime import datetime
 
-async def analyze_symbol(symbol: str, exchange, predictor, timeframe: str = "15m"):
-    """
-    Analyze a symbol and generate a trading signal based on technical indicators,
-    support/resistance, and breakout detection.
+async def analyze_symbol(symbol: str, df: pd.DataFrame, timeframe: str, predictor: RandomForestPredictor) -> Optional[Dict]:
+    log = logging.getLogger("crypto-signal-bot")
     
-    Args:
-        symbol (str): Trading pair (e.g., BTC/USDT)
-        exchange: CCXT exchange instance
-        predictor: SignalPredictor instance
-        timeframe (str): Timeframe for analysis (default: 15m)
+    log.info(f"[{symbol}] Starting analysis on {timeframe}")
     
-    Returns:
-        dict: Signal details or None if no valid signal
-    """
     try:
-        log(f"[{symbol}] Starting analysis on {timeframe}", level="INFO")
-        
-        if predictor is None:
-            log(f"[{symbol}] Predictor not initialized", level="ERROR")
-            return None
-
-        # Fetch OHLCV data
-        ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=50)
-        log(f"[{symbol}] Fetched {len(ohlcv)} OHLCV rows", level="INFO")
-        
-        df = pd.DataFrame(
-            ohlcv,
-            columns=["timestamp", "open", "high", "low", "close", "volume"],
-            dtype="float32"
-        )
-        df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
-        
-        # Calculate indicators
+        # Calculate technical indicators
         df = calculate_indicators(df)
-        if df is None or df.empty:
-            log(f"[{symbol}] Failed to calculate indicators", level="WARNING")
-            return None
+        log.info(f"[{symbol}] Indicators calculated: RSI, MACD, ATR, Volume, Bollinger Bands, Volume SMA 20")
         
-        # Calculate support/resistance
-        df = find_support_resistance(df)
-        if df is None or df.empty or 'support' not in df.columns or 'resistance' not in df.columns:
-            log(f"[{symbol}] Failed to calculate support/resistance", level="ERROR")
-            df['support'] = df['low'].astype('float32')
-            df['resistance'] = df['high'].astype('float32')
+        # Calculate support and resistance
+        support_resistance = calculate_support_resistance(symbol, df)
+        log.info(f"[{symbol}] Support/Resistance calculated: Last support={support_resistance['support']:.2f}, resistance={support_resistance['resistance']:.2f}")
         
-        # Set dynamic TP hit rates based on predictor confidence
+        # Prepare features for prediction
+        features = {
+            'rsi': df['rsi'].iloc[-1],
+            'macd': df['macd'].iloc[-1],
+            'macd_signal': df['macd_signal'].iloc[-1],
+            'bb_upper': df['bb_upper'].iloc[-1],
+            'bb_lower': df['bb_lower'].iloc[-1],
+            'atr': df['atr'].iloc[-1],
+            'volume': df['volume'].iloc[-1],
+            'volume_sma_20': df['volume_sma_20'].iloc[-1],
+            'bullish_engulfing': df['bullish_engulfing'].iloc[-1],
+            'bearish_engulfing': df['bearish_engulfing'].iloc[-1],
+            'doji': df['doji'].iloc[-1],
+            'hammer': df['hammer'].iloc[-1],
+            'shooting_star': df['shooting_star'].iloc[-1],
+            'three_white_soldiers': df['three_white_soldiers'].iloc[-1],
+            'three_black_crows': df['three_black_crows'].iloc[-1],
+        }
+        log.info(f"[{symbol}] Features prepared: {features}")
+        
+        # Get signal from predictor
         signal = await predictor.predict_signal(symbol, df, timeframe)
+        
         if signal is None:
-            log(f"[{symbol}] No valid signal from predictor", level="INFO")
+            log.info(f"[{symbol}] No valid signal from predictor")
             # Check for breakout as fallback
             breakout = detect_breakout(symbol, df)
             if breakout["is_breakout"]:
                 direction = "LONG" if breakout["direction"] == "up" else "SHORT"
                 confidence = 90.0  # Fixed confidence for breakout
-                tp1_possibility = 0.85
+                tp1_possibility = 0.85  # Static for breakout
                 tp2_possibility = 0.65
                 tp3_possibility = 0.45
             else:
@@ -67,52 +58,33 @@ async def analyze_symbol(symbol: str, exchange, predictor, timeframe: str = "15m
         else:
             direction = signal["direction"]
             confidence = signal["confidence"]
+            
             # Dynamic TP possibilities based on confidence (threshold raised to 75%)
             tp1_possibility = min(0.80 + (confidence / 100 - 0.75) * 0.15, 0.95)
             tp2_possibility = min(0.60 + (confidence / 100 - 0.75) * 0.20, 0.80)
             tp3_possibility = min(0.40 + (confidence / 100 - 0.75) * 0.25, 0.65)
+            
             # Skip if confidence is too low
             if confidence < 75.0:
-                log(f"[{symbol}] Low confidence: {confidence:.2f}%", level="INFO")
+                log.info(f"[{symbol}] Low confidence: {confidence:.2f}%")
                 return None
-
-        current_price = df["close"].iloc[-1]
-        atr = df["atr"].iloc[-1]
         
-        # Calculate TP and SL levels
-        if direction == "LONG":
-            tp1 = current_price + (0.15 * atr)
-            tp2 = current_price + (0.3 * atr)
-            tp3 = current_price + (0.45 * atr)
-            sl = current_price - (1.2 * atr)
-        else:  # SHORT
-            tp1 = current_price - (0.15 * atr)
-            tp2 = current_price - (0.3 * atr)
-            tp3 = current_price - (0.45 * atr)
-            sl = current_price + (1.2 * atr)
-
-        # Prepare result
-        result = {
+        # Log signal
+        log.info(f"[{symbol}] Signal generated - Direction: {direction}, Confidence: {confidence:.2f}%, TP1: {tp1_possibility:.2f}, TP2: {tp2_possibility:.2f}, TP3: {tp3_possibility:.2f}")
+        
+        # Return signal data
+        return {
             "symbol": symbol,
-            "timeframe": timeframe,
             "direction": direction,
-            "entry": current_price,
-            "tp1": round(tp1, 4),
-            "tp2": round(tp2, 4),
-            "tp3": round(tp3, 4),
-            "sl": round(sl, 4),
             "confidence": confidence,
-            "tp1_possibility": round(tp1_possibility, 2),
-            "tp2_possibility": round(tp2_possibility, 2),
-            "tp3_possibility": round(tp3_possibility, 2)
+            "tp1_possibility": tp1_possibility,
+            "tp2_possibility": tp2_possibility,
+            "tp3_possibility": tp3_possibility,
+            "support": support_resistance["support"],
+            "resistance": support_resistance["resistance"],
+            "timestamp": datetime.utcnow().isoformat()
         }
-
-        log(f"[{symbol}] Signal generated - Direction: {direction}, Confidence: {confidence:.2f}%, TP1: {tp1_possibility:.2f}, TP2: {tp2_possibility:.2f}, TP3: {tp3_possibility:.2f}", level="INFO")
-        return result
+    
     except Exception as e:
-        log(f"[{symbol}] Error in analysis: {str(e)}", level="ERROR")
+        log.error(f"[{symbol}] Error during analysis: {str(e)}")
         return None
-    finally:
-        if 'df' in locals():
-            del df
-        gc.collect()
