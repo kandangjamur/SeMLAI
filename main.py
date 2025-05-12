@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from typing import List, Dict
 from core.analysis import analyze_symbol_multi_timeframe
 from predictors.random_forest import RandomForestPredictor
-from utils.notifications import send_telegram_message
+from telebot.sender import send_telegram_signal
 from datetime import datetime, timedelta
 
 # Configure logging
@@ -103,12 +103,21 @@ async def process_symbol(symbol: str):
         cooldowns[symbol] = datetime.utcnow()
         log.info(f"[{symbol}] Added to cooldown for {COOLDOWN_PERIOD/3600} hours")
         
-        message = (
-            f"🔍 {signal['symbol']} | Confidence: {signal['confidence']:.2f} | "
-            f"Direction: {signal['direction']} | TP1 Chance: {signal['tp1_possibility']:.2f}"
-        )
-        await send_telegram_message(message)
-        log.info(f"[{signal['symbol']}] Telegram message sent successfully")
+        # Calculate entry, TP, and SL based on support/resistance and ATR
+        latest_df = timeframe_data["15m"]  # Use 15m for latest price
+        current_price = latest_df['close'].iloc[-1]
+        atr = latest_df['atr'].iloc[-1] if 'atr' in latest_df else 0.01 * current_price
+        
+        signal.update({
+            "entry": current_price,
+            "tp1": current_price + atr * 1.5 if signal["direction"] == "LONG" else current_price - atr * 1.5,
+            "tp2": current_price + atr * 3.0 if signal["direction"] == "LONG" else current_price - atr * 3.0,
+            "tp3": current_price + atr * 5.0 if signal["direction"] == "LONG" else current_price - atr * 5.0,
+            "sl": current_price - atr * 1.0 if signal["direction"] == "LONG" else current_price + atr * 1.0
+        })
+        
+        await send_telegram_signal(symbol, signal)
+        log.info(f"[{signal['symbol']}] Telegram signal sent successfully")
         await save_signal_to_csv(signal)
         log.info(f"✅ Signal SENT ✅")
     else:
