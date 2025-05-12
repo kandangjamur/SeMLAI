@@ -61,7 +61,7 @@ async def analyze_symbol(symbol: str, df: pd.DataFrame, timeframe: str, predicto
             tp3_possibility = min(0.40 + (confidence / 100 - 0.75) * 0.25, 0.65)
             
             # Skip if confidence is too low
-            if confidence < 70.0:
+            if confidence < 60.0:
                 log.info(f"[{symbol}] Low confidence: {confidence:.2f}%")
                 return None
         
@@ -124,7 +124,7 @@ async def analyze_symbol_multi_timeframe(symbol: str, timeframe_data: Dict[str, 
             log.info(f"[{symbol}] Not enough timeframe signals: {len(signals)}/3")
             return None
         
-        if weighted_confidence < 70.0:
+        if weighted_confidence < 60.0:
             log.info(f"[{symbol}] Combined confidence too low: {weighted_confidence:.2f}%")
             return None
         
