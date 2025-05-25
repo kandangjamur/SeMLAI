@@ -1,0 +1,2 @@
+success,message,timestamp
+false,"unable to find column ""price""; valid columns: [""symbol"", ""direction"", ""confidence"", ""tp1_possibility"", ""tp2_possibility"", ""tp3_possibility"", ""support"", ""resistance"", ""timestamp"", ""entry"", ""tp1"", ""tp2"", ""tp3"", ""sl""]",2025-05-13 01:59:24

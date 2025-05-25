@@ -9,25 +9,30 @@ from telegram import Bot
 import os
 from dotenv import load_dotenv
 
+
 log("[Engine] File loaded: core/engine.py")  # Confirm file loading
 
 load_dotenv()
+
 
 async def run_engine():
     log("[Engine] Starting run_engine")
 
     try:
         log("[Engine] Checking environment variables")
-        required_vars = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID", "BINANCE_API_KEY", "BINANCE_API_SECRET"]
+        required_vars = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_CHAT_ID",
+                         "BINANCE_API_KEY", "BINANCE_API_SECRET"]
         for var in required_vars:
             if not os.getenv(var):
-                log(f"[Engine] Missing environment variable: {var}", level='ERROR')
+                log(
+                    f"[Engine] Missing environment variable: {var}", level='ERROR')
                 return
 
         log("[Engine] Checking model file")
         model_path = "models/rf_model.joblib"
         if not os.path.exists(model_path):
-            log(f"[Engine] Model file not found at {model_path}", level='ERROR')
+            log(f"[Engine] Model file not found at {model_path}",
+                level='ERROR')
             return
 
         log("[Engine] Checking logs directory")
@@ -41,7 +46,8 @@ async def run_engine():
             bot = Bot(token=os.getenv("TELEGRAM_BOT_TOKEN"))
             log("[Engine] Telegram bot initialized")
         except Exception as e:
-            log(f"[Engine] Error initializing Telegram bot: {str(e)}", level='ERROR')
+            log(
+                f"[Engine] Error initializing Telegram bot: {str(e)}", level='ERROR')
             return
 
         log("[Engine] Initializing Binance exchange")
@@ -53,7 +59,8 @@ async def run_engine():
             })
             log("[Engine] Binance exchange initialized")
         except Exception as e:
-            log(f"[Engine] Error initializing Binance exchange: {str(e)}", level='ERROR')
+            log(
+                f"[Engine] Error initializing Binance exchange: {str(e)}", level='ERROR')
             return
 
         log("[Engine] Loading markets")
@@ -73,7 +80,8 @@ async def run_engine():
             log(f"[Engine] [{symbol}] Checking whale activity")
             try:
                 ohlcv = await exchange.fetch_ohlcv(symbol, "1h", limit=100)
-                df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
+                df = pd.DataFrame(ohlcv, columns=[
+                                  "timestamp", "open", "high", "low", "close", "volume"], dtype="float32")
                 log(f"[Engine] [{symbol}] OHLCV fetched")
             except Exception as e:
                 log(f"[Engine] [{symbol}] Error fetching OHLCV: {str(e)}", level='ERROR')
@@ -103,11 +111,13 @@ async def run_engine():
                         await bot.send_message(chat_id=os.getenv("TELEGRAM_CHAT_ID"), text=message)
                         log(f"[Engine] [{symbol}] Signal sent: {signal['direction']}, Confidence: {signal['confidence']:.2f}%")
                     except Exception as e:
-                        log(f"[Engine] [{symbol}] Error sending Telegram message: {str(e)}", level='ERROR')
+                        log(
+                            f"[Engine] [{symbol}] Error sending Telegram message: {str(e)}", level='ERROR')
 
                     signal_df = pd.DataFrame([signal])
                     log(f"[Engine] [{symbol}] Saving signal to CSV")
-                    signal_df.to_csv(f"{logs_dir}/signals_log.csv", mode="a", header=not os.path.exists(f"{logs_dir}/signals_log.csv"), index=False)
+                    signal_df.to_csv(f"{logs_dir}/signals_log.csv", mode="a",
+                                     header=not os.path.exists(f"{logs_dir}/signals_log.csv"), index=False)
                     log(f"[Engine] [{symbol}] Signal saved to CSV")
                 else:
                     log(f"[Engine] [{symbol}] No valid signal")
@@ -128,4 +138,5 @@ async def run_engine():
             log(f"[Engine] Error closing exchange: {str(e)}", level='ERROR')
 
     except Exception as e:
-        log(f"[Engine] Unexpected error in run_engine: {str(e)}", level='ERROR')
+        log(
+            f"[Engine] Unexpected error in run_engine: {str(e)}", level='ERROR')

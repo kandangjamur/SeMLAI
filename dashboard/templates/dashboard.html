@@ -1,78 +1,295 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Signal Dashboard</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>Confidence Statistics - Crypto Sniper</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f4f4f4;
+        .card {
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
-        h1 {
-            text-align: center;
-            color: #333;
+
+        .navbar-brand {
+            font-weight: bold;
         }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-            background-color: #fff;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+
+        #lastUpdated {
+            font-size: 0.8rem;
+            color: #6c757d;
         }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
+
+        .stat-card {
+            transition: transform 0.2s;
         }
-        th {
-            background-color: #4CAF50;
-            color: white;
-        }
-        tr:hover {
-            background-color: #f5f5f5;
-        }
-        .no-signals {
-            text-align: center;
-            color: #888;
-            margin-top: 20px;
+
+        .stat-card:hover {
+            transform: translateY(-5px);
         }
     </style>
 </head>
+
 <body>
-    <h1>Crypto Signal Dashboard</h1>
-    {% if signals %}
-    <table>
-        <thead>
-            <tr>
-                <th>Symbol</th>
-                <th>Direction</th>
-                <th>Confidence</th>
-                <th>TP1</th>
-                <th>TP2</th>
-                <th>TP3</th>
-                <th>Timestamp</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for signal in signals %}
-            <tr>
-                <td>{{ signal.symbol }}</td>
-                <td>{{ signal.direction }}</td>
-                <td>{{ signal.confidence }}</td>
-                <td>{{ signal.tp1 }}</td>
-                <td>{{ signal.tp2 }}</td>
-                <td>{{ signal.tp3 }}</td>
-                <td>{{ signal.timestamp }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="no-signals">No signals available.</p>
-    {% endif %}
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container">
+            <a class="navbar-brand" href="#">Crypto Sniper Dashboard</a>
+            <ul class="navbar-nav">
+                <li class="nav-item">
+                    <a class="nav-link" href="/">Home</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link active" href="/confidence">Confidence Stats</a>
+                </li>
+            </ul>
+            <span class="navbar-text" id="lastUpdated">
+                Last updated: {{ last_updated }}
+            </span>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% if error %}
+        <div class="alert alert-danger">
+            Error: {{ error }}
+        </div>
+        {% else %}
+
+        <!-- Confidence Overview -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">Confidence Overview</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-4">
+                                <div class="card stat-card bg-light">
+                                    <div class="card-body text-center">
+                                        <h2>{{ stats.total_signals }}</h2>
+                                        <p class="text-muted">Total Signals (30 days)</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card stat-card bg-light">
+                                    <div class="card-body text-center">
+                                        <h2>{{ stats.avg_confidence }}%</h2>
+                                        <p class="text-muted">Average Confidence</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card stat-card bg-light">
+                                    <div class="card-body text-center">
+                                        <h2>{{ performance.success_rate|default('N/A', true) }}%</h2>
+                                        <p class="text-muted">Success Rate</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {% if stats.confidence_chart %}
+                        <div class="mt-4">
+                            <img src="{{ stats.confidence_chart }}" class="img-fluid" alt="Confidence Chart">
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Confidence Distribution -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">Confidence Distribution</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="confidenceDistributionChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Long vs Short -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">Signal Direction Distribution</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="directionChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4">
+            <!-- Confidence by Timeframe -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="mb-0">Confidence by Timeframe</h5>
+                    </div>
+                    <div class="card-body">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Timeframe</th>
+                                    <th>Average Confidence</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for timeframe, confidence in stats.timeframe_confidence.items() %}
+                                <tr>
+                                    <td>{{ timeframe }}</td>
+                                    <td>{{ confidence }}%</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Success by Confidence -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-danger text-white">
+                        <h5 class="mb-0">Success Rate by Confidence</h5>
+                    </div>
+                    <div class="card-body">
+                        {% if performance and performance.by_confidence %}
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Confidence Range</th>
+                                    <th>Success Rate</th>
+                                    <th>Count</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for bracket, data in performance.by_confidence.items() %}
+                                <tr>
+                                    <td>{{ bracket }}</td>
+                                    <td>{{ data.success_rate }}%</td>
+                                    <td>{{ data.count }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        {% else %}
+                        <p class="text-center">No performance data available yet.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // Confidence Distribution Chart
+        const confidenceDistCanvas = document.getElementById('confidenceDistributionChart');
+        if (confidenceDistCanvas) {
+            new Chart(confidenceDistCanvas, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys({{ stats.confidence_distribution | tojson }}),
+                datasets: [{
+                    label: 'Number of Signals',
+                    data: Object.values({{ stats.confidence_distribution | tojson }}),
+                    backgroundColor: [
+                    'rgba(255, 99, 132, 0.6)',
+                    'rgba(255, 159, 64, 0.6)',
+                    'rgba(255, 205, 86, 0.6)',
+                    'rgba(75, 192, 192, 0.6)',
+                    'rgba(54, 162, 235, 0.6)',
+                    'rgba(153, 102, 255, 0.6)'
+                ],
+                    borderColor: [
+                    'rgb(255, 99, 132)',
+                    'rgb(255, 159, 64)',
+                    'rgb(255, 205, 86)',
+                    'rgb(75, 192, 192)',
+                    'rgb(54, 162, 235)',
+                    'rgb(153, 102, 255)'
+                ],
+                    borderWidth: 1
+                    }]
+                },
+        options: {
+            responsive: true,
+                plugins: {
+                legend: {
+                    display: false
+                },
+                title: {
+                    display: true,
+                        text: 'Signal Count by Confidence Range'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                        title: {
+                        display: true,
+                            text: 'Number of Signals'
+                    }
+                },
+                x: {
+                    title: {
+                        display: true,
+                            text: 'Confidence Range'
+                    }
+                }
+            }
+        }
+            });
+        }
+
+        // Direction Chart
+        const directionCanvas = document.getElementById('directionChart');
+        if (directionCanvas) {
+            new Chart(directionCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: ['LONG', 'SHORT'],
+                    datasets: [{
+                        data: [
+                            {{ stats.long_short_ratio.LONG }},
+                    {{ stats.long_short_ratio.SHORT }}
+                        ],
+                backgroundColor: [
+                    'rgba(54, 162, 235, 0.8)',
+                    'rgba(255, 99, 132, 0.8)'
+                ],
+                borderColor: [
+                    'rgb(54, 162, 235)',
+                    'rgb(255, 99, 132)'
+                ],
+                borderWidth: 1
+            }]
+                },
+        options: {
+            responsive: true,
+                plugins: {
+                legend: {
+                    position: 'bottom'
+                },
+                title: {
+                    display: true,
+                        text: 'Signal Direction Distribution'
+                }
+            }
+        }
+            });
+        }
+    </script>
 </body>
+
 </html>

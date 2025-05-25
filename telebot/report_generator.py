@@ -9,6 +9,7 @@ from utils.logger import log
 BOT_TOKEN = "7620836100:AAEEe4yAP18Lxxj0HoYfH8aeX4PetAxYsV0"
 CHAT_ID = "-4694205383"
 
+
 async def send_telegram_message(message: str):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -27,7 +28,8 @@ async def send_telegram_message(message: str):
                         log_report_status(True, "Success")
                         return
                     else:
-                        log(f"Failed to send Telegram message: {response.text}", level='ERROR')
+                        log(
+                            f"Failed to send Telegram message: {response.text}", level='ERROR')
                         log_report_status(False, response.text)
                 except Exception as e:
                     log(f"Error sending Telegram message: {e}", level='ERROR')
@@ -40,10 +42,12 @@ async def send_telegram_message(message: str):
         log(f"Error in send_telegram_message: {e}", level='ERROR')
         log_report_status(False, str(e))
 
+
 def log_report_status(success: bool, message: str):
     try:
         csv_path = "logs/report_status.csv"
-        timestamp = datetime.now(pytz.timezone('Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = datetime.now(pytz.timezone(
+            'Asia/Karachi')).strftime('%Y-%m-%d %H:%M:%S')
         data = pl.DataFrame({
             "success": [success],
             "message": [message],
@@ -51,7 +55,8 @@ def log_report_status(success: bool, message: str):
         })
 
         if os.path.exists(csv_path):
-            old_df = pl.read_csv(csv_path, columns=['success', 'message', 'timestamp'])
+            old_df = pl.read_csv(csv_path, columns=[
+                                 'success', 'message', 'timestamp'])
             if not data.is_empty():
                 data = old_df.vstack(data)
 
@@ -63,6 +68,7 @@ def log_report_status(success: bool, message: str):
     except Exception as e:
         log(f"Error logging report status: {e}", level='ERROR')
 
+
 async def generate_daily_summary():
     try:
         columns = [
@@ -70,7 +76,7 @@ async def generate_daily_summary():
             'volume', 'confidence', 'tp1_possibility', 'tp2_possibility', 'tp3_possibility',
             'timeframe', 'status', 'indicators_used', 'backtest_result', 'trade_type'
         ]
-        df = pl.read_csv("logs/signals_log.csv", columns=columns)
+        df = pl.read_csv("logs/signals_log_new.csv", columns=columns)
         today = datetime.now(pytz.timezone('Asia/Karachi')).date()
         df = df.with_columns(pl.col("timestamp").cast(pl.DateTime))
 
@@ -95,9 +101,12 @@ async def generate_daily_summary():
 
         total = len(today_signals)
         long_signals = len(today_signals.filter(pl.col("direction") == "LONG"))
-        short_signals = len(today_signals.filter(pl.col("direction") == "SHORT"))
-        scalping_signals = len(today_signals.filter(pl.col("trade_type") == "Scalping"))
-        normal_signals = len(today_signals.filter(pl.col("trade_type") == "Normal"))
+        short_signals = len(today_signals.filter(
+            pl.col("direction") == "SHORT"))
+        scalping_signals = len(today_signals.filter(
+            pl.col("trade_type") == "Scalping"))
+        normal_signals = len(today_signals.filter(
+            pl.col("trade_type") == "Normal"))
         tp1_hits = len(today_signals.filter(pl.col("status") == "tp1"))
         tp2_hits = len(today_signals.filter(pl.col("status") == "tp2"))
         tp3_hits = len(today_signals.filter(pl.col("status") == "tp3"))
@@ -106,19 +115,29 @@ async def generate_daily_summary():
         total_hits = tp1_hits + tp2_hits + tp3_hits
         accuracy = round((total_hits / total * 100) if total > 0 else 0, 2)
 
-        avg_tp1_chance = round(today_signals["tp1_possibility"].mean() * 100, 2)
-        avg_tp2_chance = round(today_signals["tp2_possibility"].mean() * 100, 2)
-        avg_tp3_chance = round(today_signals["tp3_possibility"].mean() * 100, 2)
+        avg_tp1_chance = round(
+            today_signals["tp1_possibility"].mean() * 100, 2)
+        avg_tp2_chance = round(
+            today_signals["tp2_possibility"].mean() * 100, 2)
+        avg_tp3_chance = round(
+            today_signals["tp3_possibility"].mean() * 100, 2)
 
-        successful_pairs = today_signals.filter(pl.col("status").is_in(["tp1", "tp2", "tp3"]))
-        top_pairs = successful_pairs.group_by("symbol").len().sort("len", descending=True).head(3).to_dicts()
-        top_pairs_str = "\n".join([f"{pair['symbol']}: {pair['len']} hits" for pair in top_pairs]) if top_pairs else "None"
+        successful_pairs = today_signals.filter(
+            pl.col("status").is_in(["tp1", "tp2", "tp3"]))
+        top_pairs = successful_pairs.group_by("symbol").len().sort(
+            "len", descending=True).head(3).to_dicts()
+        top_pairs_str = "\n".join(
+            [f"{pair['symbol']}: {pair['len']} hits" for pair in top_pairs]) if top_pairs else "None"
 
-        indicators_used = today_signals.group_by("indicators_used").len().sort("len", descending=True).head(3).to_dicts()
-        indicators_str = "\n".join([f"{ind['indicators_used']}: {ind['len']} signals" for ind in indicators_used]) if indicators_used else "N/A"
+        indicators_used = today_signals.group_by("indicators_used").len().sort(
+            "len", descending=True).head(3).to_dicts()
+        indicators_str = "\n".join(
+            [f"{ind['indicators_used']}: {ind['len']} signals" for ind in indicators_used]) if indicators_used else "N/A"
 
-        backtest_success = len(today_signals.filter(pl.col("backtest_result") >= 70))
-        backtest_rate = round((backtest_success / total * 100) if total > 0 else 0, 2)
+        backtest_success = len(today_signals.filter(
+            pl.col("backtest_result") >= 70))
+        backtest_rate = round(
+            (backtest_success / total * 100) if total > 0 else 0, 2)
 
         # Log zero-value signals
         zero_signals = df.filter(
@@ -128,7 +147,8 @@ async def generate_daily_summary():
         )
         if not zero_signals.is_empty():
             zero_signals.write_csv("logs/zero_value_errors.csv")
-            log(f"Logged {len(zero_signals)} zero-value signals", level='WARNING')
+            log(f"Logged {len(zero_signals)} zero-value signals",
+                level='WARNING')
 
         summary = (
             f"📋 *Daily Report ({today})*\n\n"

@@ -1,0 +1,11 @@
+{
+    "telegram_minimum": 95.0,
+    "base_minimum": 60.0,
+    "timeframe_agreement": 2,
+    "confidence_levels": {
+        "low": 60.0,
+        "moderate": 70.0,
+        "high": 80.0,
+        "very_high": 90.0
+    }
+}

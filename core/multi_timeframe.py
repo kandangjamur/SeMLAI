@@ -4,18 +4,21 @@ from utils.logger import log
 import asyncio
 import ta
 
+
 async def fetch_ohlcv(exchange, symbol, timeframe, limit=100):
     try:
         ohlcv = await exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
         if not ohlcv or len(ohlcv) < 50:
             log(f"[{symbol}] Insufficient OHLCV data for {timeframe}", level='ERROR')
             return None
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'], dtype='float32')
+        df = pd.DataFrame(ohlcv, columns=[
+                          'timestamp', 'open', 'high', 'low', 'close', 'volume'], dtype='float32')
         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
         return df
     except Exception as e:
         log(f"[{symbol}] Failed to fetch OHLCV for {timeframe}: {e}", level='ERROR')
         return None
+
 
 async def multi_timeframe_boost(symbol, exchange, direction):
     try:
@@ -26,8 +29,10 @@ async def multi_timeframe_boost(symbol, exchange, direction):
                 continue
 
             # Calculate EMAs and volume SMA
-            df["ema_20"] = ta.trend.EMAIndicator(df["close"], window=20, fillna=True).ema_indicator()
-            df["ema_50"] = ta.trend.EMAIndicator(df["close"], window=50, fillna=True).ema_indicator()
+            df["ema_20"] = ta.trend.EMAIndicator(
+                df["close"], window=20, fillna=True).ema_indicator()
+            df["ema_50"] = ta.trend.EMAIndicator(
+                df["close"], window=50, fillna=True).ema_indicator()
             df["volume_sma_20"] = df["volume"].rolling(window=20).mean()
 
             latest = df.iloc[-1]
@@ -51,10 +56,12 @@ async def multi_timeframe_boost(symbol, exchange, direction):
 
             # Fake breakout check
             if direction == "LONG" and prev["high"] > latest["high"] and next_candle["close"] <= prev["high"]:
-                log(f"[{symbol}] Fake breakout detected on {timeframe}", level='WARNING')
+                log(f"[{symbol}] Fake breakout detected on {timeframe}",
+                    level='WARNING')
                 return 0
             if direction == "SHORT" and prev["low"] < latest["low"] and next_candle["close"] >= prev["low"]:
-                log(f"[{symbol}] Fake breakout detected on {timeframe}", level='WARNING')
+                log(f"[{symbol}] Fake breakout detected on {timeframe}",
+                    level='WARNING')
                 return 0
 
         return boost
